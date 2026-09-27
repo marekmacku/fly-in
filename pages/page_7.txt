@@ -1,0 +1,16 @@
+Fly-in
+Drones are interesting.
+• lint: Execute the commands flake8 . and mypy . --warn-return-any
+--warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs
+--check-untyped-defs
+• lint-strict (optional): Execute the commands flake8 . and mypy . --strict
+III.3
+Additional Guidelines
+• Create test programs to verify project functionality (not submitted or graded). Use
+frameworks like pytest or unittest for unit tests, covering edge cases.
+• Include a .gitignore file to exclude Python artifacts.
+• It is recommended to use virtual environments (e.g., venv or conda) for dependency
+isolation during development.
+If any additional project-specific requirements apply, they will be stated immediately below
+this section.
+6

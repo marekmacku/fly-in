@@ -1,0 +1,8 @@
+Chapter V
+Constraints
+• Any library that helps with graph logic is forbidden (such as networkx, graphlib,
+etc.).
+• The project must be completely typesafe. Using flake8 and mypy is mandatory.
+• The project must be completely object-oriented.
+This will have to be demonstrated during the peer review.
+8

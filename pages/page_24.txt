@@ -1,0 +1,14 @@
+Fly-in
+Drones are interesting.
+rewrite, or an easy-to-add feature.
+While this step may not be applicable to every project, you must be prepared for it
+if it is mentioned in the evaluation guidelines.
+This step is meant to verify your actual understanding of a specific part of the project.
+The modification can be performed in any development environment you choose (e.g.,
+your usual setup), and it should be feasible within a few minutes — unless a specific time
+frame is defined as part of the evaluation.
+You can, for example, be asked to make a small update to a function or script, modify a
+display, or adjust a data structure to store new information, etc.
+The details (scope, target, etc.) will be specified in the evaluation guidelines and may
+vary from one evaluation to another for the same project.
+23

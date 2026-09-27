@@ -1,0 +1,5 @@
+Fly-in
+Drones are interesting.
+It’s highly recommended to make your own map files on top of the ones
+provided in the subject for handling edge cases and error handling.
+14

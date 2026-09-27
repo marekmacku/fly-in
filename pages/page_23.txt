@@ -1,0 +1,21 @@
+Chapter X
+Submission and peer-review
+Submit your assignment in your Git repository as usual.
+Only the work inside your
+repository will be evaluated during the peer-evaluation. Don’t hesitate to double-check
+the names of your files to ensure they are correct.
+Place all your files at the root of your repository.
+A fully working simulation written in Python, including:
+• A parser for the input file format.
+• A simulation engine respecting movement and zone rules.
+• A pathfinding algorithm (or multiple) capable of minimizing total turns.
+• A visual representation system (terminal colors and/or graphical interface).
+• A terminal or log output that follows the specified format.
+Note that we may ask you to explain your code or possibly even to
+write some code.
+Make sure to be prepared for this.
+Evaluation maps may be different from the ones provided in the
+subject.
+During the evaluation, a brief modification of the project may occasionally be re-
+quested. This could involve a minor behaviour change, a few lines of code to write or
+22

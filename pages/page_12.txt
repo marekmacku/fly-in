@@ -1,0 +1,26 @@
+Chapter VII
+Mandatory Part
+As you may have guessed, the main objective is to move all drones from the start zone
+to the end zone in the fewest possible simulation turns.
+VII.1
+Pathfinding and Algorithm Requirements
+• Drones may move simultaneously. The algorithm must schedule paths to maximize
+throughput and avoid unnecessary delays.
+• Your implementation must handle:
+◦Distribution of drones across multiple paths.
+◦Strategic waiting when movement is not possible.
+◦Avoidance of path conflicts and deadlocks.
+• The algorithm must take into account:
+◦Path lengths, including movement costs associated with zone types (e.g., re-
+stricted or priority).
+◦Turn scheduling, to prevent drones from colliding or blocking each other.
+◦Graph structure, to determine available disjoint or overlapping paths.
+◦Zone capacity constraints (max_drones) and connection capacity (max_link_capacity).
+• Your algorithm should be adaptable: different maps may require different routing
+strategies, depending on the topology and zone types.
+• Visual Representation: Your implementation must provide visual feedback of
+the simulation, either through:
+◦Colored terminal output showing drone movements and zone states
+◦A graphical interface displaying the network and drone positions
+◦Both options for enhanced user experience
+11

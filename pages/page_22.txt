@@ -1,0 +1,11 @@
+Chapter IX
+Bonus Part
+This Bonus part will be reviewed only if all the mandatory requirements are met.
+Here are features you can implement to enhance your project:
+• Exceptional performance:
+◦You ’perfectly’ meet the performance reference targets for all provided maps.
+◦’perfectly’ means you match or beat the target turn count.
+• Challenger map:
+◦The Impossible Dream map is solved and beats the reference record of 45
+turns.
+21

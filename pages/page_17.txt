@@ -1,0 +1,9 @@
+Fly-in
+Drones are interesting.
+• Quality and usefulness of visual representation.
+In case of identical turn counts, solutions may be compared based on secondary metrics
+or code quality.
+These secondary metrics are not mandatory to compute automatically,
+but learners are encouraged to display them in their simulation
+output or documentation to help peers evaluate performance.
+16

@@ -1,0 +1,13 @@
+Chapter IV
+Introduction
+Autonomous drones are the future of transportation. They are already used in many
+industries, such as agriculture, construction, and logistics. They are also used in military
+operations, such as surveillance and reconnaissance.
+Your task is to design a system that efficiently routes a fleet of drones from a central
+base (start) to a target location (end), while navigating this dynamic network under
+a set of strict constraints and optimization goals.
+You’ll be given a graph representing the network of zones, and a set of constraints
+that you must respect.
+The graph is represented as a network of connected zones, where connections define pos-
+sible movement paths between zones.
+7

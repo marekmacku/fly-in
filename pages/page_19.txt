@@ -1,0 +1,10 @@
+Fly-in
+Drones are interesting.
+• Can your algorithm meet these performance benchmarks?
+• How does your solution compare to the reference targets?
+• What optimizations did you implement to achieve better
+performance?
+• Can you solve the Challenger map and beat the 45-turn record?
+Figure VII.1: Map easy 2
+Figure VII.2: Map medium 3
+18

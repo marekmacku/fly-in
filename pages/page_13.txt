@@ -1,0 +1,36 @@
+Fly-in
+Drones are interesting.
+• How efficient is your algorithm?
+• Can it work with a large number of drones?
+• What is the complexity (e.g., O(n), O(log n), etc.)?
+• Are you recalculating or caching paths?
+• How does it impact memory usage?
+• How does your visual representation enhance understanding of
+the simulation?
+VII.2
+Zone Occupancy Rules
+• By default, a zone may contain at most one drone at any given simulation turn.
+• Zones with max_drones=N metadata can contain up to N drones simultaneously.
+• The only special exceptions to occupancy rules are:
+◦The start zone: all drones begin here and may share the space initially.
+◦The end zone: multiple drones can arrive here and are considered delivered.
+• Two drones may not enter the same zone on the same turn unless the zone’s capacity
+allows it.
+• A drone may not move into a zone that would exceed its maximum capacity.
+• Connection capacity (max_link_capacity) defined on connections limits how many
+drones can traverse the same connection simultaneously.
+• Drones may move simultaneously, as long as all capacity constraints are respected.
+VII.3
+Movement and Turn Mechanics
+The simulation proceeds in discrete turns. At each turn, every drone may:
+• Move to an adjacent connected zone (if capacity allows).
+• Move to a connection towards a restricted zone (that requires 2 turns to be reached).
+In this case, the drone MUST reach its destination during the next turn. It can’t
+wait extra turns on the connection.
+• Stay in place (e.g., to wait, or if movement is blocked).
+The simulation must prevent conflicts and ensure valid movement scheduling based on
+turn-by-turn state evaluation:
+• Drones moving out of a zone free up capacity for that same turn.
+• A zone must have available capacity for a drone to move into it (after all drones
+moving out have freed up space).
+12

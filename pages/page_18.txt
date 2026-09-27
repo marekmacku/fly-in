@@ -1,0 +1,38 @@
+Fly-in
+Drones are interesting.
+VII.7
+Performance Benchmarks
+The following performance targets define the expected optimization level your implemen-
+tation must achieve.
+• Expected performance:
+◦Easy maps should be solved in less than 10 turns
+◦Medium maps should be solved in 10–30 turns
+◦Hard maps should be solved in less than 60 turns
+◦Challenger map (optional) should aim to beat the reference record of 45 turns
+This level is purely optional and does not affect your grade.
+To help you evaluate your algorithm’s efficiency, here are reference performance targets
+based on the provided test maps:
+• Easy Maps:
+◦Linear path with 2 drones: Target ≤6 turns
+◦Simple fork with 4 drones: Target ≤8 turns
+◦Basic capacity with 4 drones: Target ≤6 turns
+• Medium Maps:
+◦Dead end trap with 5 drones: Target ≤12 turns
+◦Circular loop with 6 drones: Target ≤15 turns
+◦Priority puzzle with 5 drones: Target ≤12 turns
+• Hard Maps:
+◦Maze nightmare with 8 drones: Target ≤30 turns
+◦Capacity hell with 12 drones: Target ≤35 turns
+◦Ultimate challenge with 15 drones: Target ≤45 turns
+• Challenger Map (optional — for exceptional implementations):
+◦The Impossible Dream with 25 drones: Reference record: 45 turns
+◦This quasi-unsolvable challenge is designed for algorithmic research and opti-
+mization
+◦Solving this map demonstrates exceptional pathfinding and optimization skills
+◦Note: This level is purely optional and does not affect your grade
+These benchmarks are provided as optimization targets to help you
+evaluate your algorithm’s performance.
+Meeting these targets
+demonstrates a well-optimized implementation and will be assessed
+during peer evaluation.
+17

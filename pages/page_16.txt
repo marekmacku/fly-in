@@ -1,0 +1,35 @@
+Fly-in
+Drones are interesting.
+VII.5
+Simulation Output Format
+• The simulation must output the step-by-step movement of drones from the start to
+the end zone.
+• Each simulation turn is represented by a line.
+• A line must list all the drone movements that occur during that turn, space-
+separated. Each movement must follow the format: D<ID>-<zone>, or D<ID>-<connection>
+in case of drones still in flight toward restricted zones.
+◦D<ID> refers to the unique drone identifier (e.g., D1, D2).
+◦<zone> is the name of the destination zone.
+◦<connection> is the name of the connection toward a restricted zone.
+• Drones that do not move in a given turn are omitted from that line.
+• Drones that reach the end zone are considered delivered and are no longer tracked.
+• The simulation ends when all drones have reached the end zone.
+• Example:
+D1-roof1 D2-corridorA
+D1-roof2 D2-tunnelB
+D1-goal D2-goal
+VII.6
+Scoring System
+• The performance of a solution is evaluated based on the total number of simu-
+lation turns required to route all drones from the start zone to the end zone.
+• The fewer the number of turns, the better the score.
+• A valid simulation must:
+◦Comply with all movement and occupancy rules.
+◦Correctly handle movement costs associated with zone types.
+◦Respect all capacity constraints (zone and connection limits).
+◦Avoid all conflicts (e.g., exceeding zone or connection capacity).
+Secondary (optional) evaluation metrics may include:
+• The number of drones moved per turn (efficiency of path allocation).
+• The average number of turns per drone.
+• The total path cost (sum of weighted movement costs across all drones).
+15

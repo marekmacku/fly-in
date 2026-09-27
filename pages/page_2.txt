@@ -1,0 +1,66 @@
+Contents
+I
+Foreword
+2
+II
+AI Instructions
+3
+III
+Common Instructions
+5
+III.1
+General Rules
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5
+III.2
+Makefile
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5
+III.3
+Additional Guidelines . . . . . . . . . . . . . . . . . . . . . . . . . . .
+6
+IV
+Introduction
+7
+V
+Constraints
+8
+VI
+Let the drone fly
+9
+VII
+Mandatory Part
+11
+VII.1
+Pathfinding and Algorithm Requirements . . . . . . . . . . . . . . . .
+11
+VII.2
+Zone Occupancy Rules
+. . . . . . . . . . . . . . . . . . . . . . . . . .
+12
+VII.3
+Movement and Turn Mechanics . . . . . . . . . . . . . . . . . . . . . .
+12
+VII.4
+Parser Constraints . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+13
+VII.5
+Simulation Output Format . . . . . . . . . . . . . . . . . . . . . . . .
+15
+VII.6
+Scoring System
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+VII.7
+Performance Benchmarks . . . . . . . . . . . . . . . . . . . . . . . . .
+17
+VIII
+Readme Requirements
+20
+IX
+Bonus Part
+21
+X
+Submission and peer-review
+22
+1

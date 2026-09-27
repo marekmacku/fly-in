@@ -1,0 +1,33 @@
+Fly-in
+Drones are interesting.
+●Phase outcomes:
+• Develop both general-purpose and domain-specific prompting skills.
+• Boost your productivity with effective use of AI tools.
+• Continue strengthening computational thinking, problem-solving, adaptability, and
+collaboration.
+●Comments and examples:
+• You’ll regularly encounter situations — exams, evaluations, and more — where
+you must demonstrate real understanding. Be prepared, keep building both your
+technical and interpersonal skills.
+• Explaining your reasoning and debating with peers often reveals gaps in your un-
+derstanding. Make peer learning a priority.
+• AI tools often lack your specific context and tend to provide generic responses. Your
+peers, who share your environment, can offer more relevant and accurate insights.
+• Where AI tends to generate the most likely answer, your peers can provide alter-
+native perspectives and valuable nuance. Rely on them as a quality checkpoint.
+✓Good practice:
+I ask AI: “How do I test a sorting function?” It gives me a few ideas. I try them out
+and review the results with a peer. We refine the approach together.
+✗Bad practice:
+I ask AI to write a whole function, copy-paste it into my project.
+During peer-
+evaluation, I can’t explain what it does or why. I lose credibility — and I fail my
+project.
+✓Good practice:
+I use AI to help design a parser. Then I walk through the logic with a peer. We catch
+two bugs and rewrite it together — better, cleaner, and fully understood.
+✗Bad practice:
+I let Copilot generate my code for a key part of my project. It compiles, but I can’t
+explain how it handles pipes. During the evaluation, I fail to justify and I fail my
+project.
+4

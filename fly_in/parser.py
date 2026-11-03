@@ -13,10 +13,12 @@ _ZONE_KEYS: dict[str, Callable[[Zone, str], None]] = {}
 _CONN_KEYS: set[str] = {"max_link_capacity", "color"}
 
 
-def _parse_int(value: str, what: str) -> int:
-    """Parse a strict integer string or raise ParseError."""
+def _parse_int(value: str, what: str, line_no: int) -> int:
+    """Parse a strict integer string or raise ParseError with the line."""
     if not _HEX_RE.match(value):
-        raise ParseError(f"invalid integer for {what}: '{value}'")
+        raise ParseError(
+            f"line {line_no}: invalid integer for {what}: '{value}'"
+        )
     return int(value)
 
 
@@ -88,8 +90,8 @@ def _build_zone(
 ) -> Zone:
     """Build a Zone from parsed tokens, validating types and capacities."""
     name = _validate_name(name, line_no)
-    x = _parse_int(x_str, "x coordinate")
-    y = _parse_int(y_str, "y coordinate")
+    x = _parse_int(x_str, "x coordinate", line_no)
+    y = _parse_int(y_str, "y coordinate", line_no)
     zone_type = ZoneType.NORMAL
     color: str | None = None
     max_drones = 1
@@ -115,7 +117,7 @@ def _build_zone(
                 )
             color = value
         elif key == "max_drones":
-            max_drones = _parse_int(value, "max_drones")
+            max_drones = _parse_int(value, "max_drones", line_no)
             if max_drones <= 0:
                 raise ParseError(
                     f"line {line_no}: max_drones must be a positive integer"
@@ -146,7 +148,7 @@ def _build_connection(
                 f"line {line_no}: unknown connection metadata key '{key}'"
             )
         if key == "max_link_capacity":
-            max_link_capacity = _parse_int(value, "max_link_capacity")
+            max_link_capacity = _parse_int(value, "max_link_capacity", line_no)
             if max_link_capacity <= 0:
                 raise ParseError(
                     f"line {line_no}: max_link_capacity must be positive"
@@ -223,7 +225,7 @@ def parse_map(text: str) -> Graph:
                 raise ParseError(
                     f"line {index}: nb_drones expects a single value"
                 )
-            drone_count = _parse_int(body[0], "nb_drones")
+            drone_count = _parse_int(body[0], "nb_drones", index)
             if drone_count <= 0:
                 raise ParseError(
                     f"line {index}: nb_drones must be a positive integer"
@@ -231,9 +233,9 @@ def parse_map(text: str) -> Graph:
             nb_seen = True
             continue
         if prefix == "start_hub":
-            if len(body) < 3:
+            if len(body) != 3:
                 raise ParseError(
-                    f"line {index}: start_hub needs name x y"
+                    f"line {index}: start_hub expects exactly name x y"
                 )
             zone = _build_zone(
                 "start_hub", body[0], body[1], body[2], meta, index
@@ -241,9 +243,9 @@ def parse_map(text: str) -> Graph:
             _add_zone(graph, zone, index)
             continue
         if prefix == "end_hub":
-            if len(body) < 3:
+            if len(body) != 3:
                 raise ParseError(
-                    f"line {index}: end_hub needs name x y"
+                    f"line {index}: end_hub expects exactly name x y"
                 )
             zone = _build_zone(
                 "end_hub", body[0], body[1], body[2], meta, index
@@ -251,9 +253,9 @@ def parse_map(text: str) -> Graph:
             _add_zone(graph, zone, index)
             continue
         if prefix == "hub":
-            if len(body) < 3:
+            if len(body) != 3:
                 raise ParseError(
-                    f"line {index}: hub needs name x y"
+                    f"line {index}: hub expects exactly name x y"
                 )
             zone = _build_zone(
                 "hub", body[0], body[1], body[2], meta, index

@@ -20,7 +20,6 @@ created for waiting and move-in/arrival turns.
 from __future__ import annotations
 
 import heapq
-import random
 from dataclasses import dataclass, field
 from typing import NamedTuple, cast
 
@@ -29,7 +28,11 @@ from fly_in.model import Drone, Graph, TurnRecord, Zone, ZoneType
 from fly_in.pathfinding import INF, dijkstra
 
 START_TURN = 1
-MAX_HORIZON = 2000
+# Bound on (zones x turns) states a single drone's search may materialize;
+# the per-map turn cap is derived from it so memory stays bounded on maps
+# of any size. Well above n * base, the provable worst-case plan length.
+MAX_STATES = 5_000_000
+FLOOR_HORIZON = 2048
 
 Action = str  # "wait" | "move" | "transit"
 State = tuple[str, int]
@@ -139,7 +142,7 @@ def _plan_drone(
         if wait_state not in finalized and _can_occupy_zone(
             table, zone, t
         ):
-            if ready + 1 < best_ready.get(wait_state, MAX_HORIZON + 1):
+            if ready + 1 < best_ready.get(wait_state, MAX_STATES + 1):
                 best_ready[wait_state] = ready + 1
                 nodes[wait_state] = _SearchNode(
                     wait_state, state, "wait", zone_name
@@ -165,7 +168,7 @@ def _plan_drone(
                 new_state: State = (neighbour, new_t)
                 if new_state in finalized:
                     continue
-                if new_t < best_ready.get(new_state, MAX_HORIZON + 1):
+                if new_t < best_ready.get(new_state, MAX_STATES + 1):
                     best_ready[new_state] = new_t
                     nodes[new_state] = _SearchNode(
                         new_state, state, "transit", neighbour
@@ -183,7 +186,7 @@ def _plan_drone(
                 new_state = (neighbour, new_t)
                 if new_state in finalized:
                     continue
-                if new_t < best_ready.get(new_state, MAX_HORIZON + 1):
+                if new_t < best_ready.get(new_state, MAX_STATES + 1):
                     best_ready[new_state] = new_t
                     nodes[new_state] = _SearchNode(
                         new_state, state, "move", neighbour
@@ -244,27 +247,16 @@ def _plan_drone(
     return records
 
 
-def _makespan(drones: list[Drone]) -> int:
-    """Return the last simulation turn across all drone trajectories."""
-    last = 0
-    for drone in drones:
-        for rec in drone.trajectory:
-            if rec.turn > last:
-                last = rec.turn
-    return last
+def _plan_all(graph: Graph, horizon: int) -> list[Drone]:
+    """Plan every drone in ascending id order against one shared table.
 
-
-def _plan_for_order(
-    graph: Graph, order: list[int], horizon: int
-) -> list[Drone] | None:
-    """Plan every drone in the given order; return drones or None on failure."""
+    All drones are interchangeable (same start zone, same goal), so the
+    planning order cannot change the outcome; a single pass suffices.
+    """
     table = _ReservationTable()
     drones: list[Drone] = []
-    for drone_id in order:
-        try:
-            records = _plan_drone(graph, table, drone_id, horizon)
-        except SimulationError:
-            return None
+    for drone_id in range(1, graph.num_drones + 1):
+        records = _plan_drone(graph, table, drone_id, horizon)
         drones.append(Drone(drone_id=drone_id, trajectory=records))
     return drones
 
@@ -279,41 +271,11 @@ def _base_cost(graph: Graph) -> int:
     return int(dist)
 
 
-def _candidate_orders(n: int) -> list[list[int]]:
-    """Generate a handful of drone orderings to try."""
-    base = list(range(1, n + 1))
-    orders: list[list[int]] = [base, list(reversed(base))]
-    rng = random.Random(424242)
-    seen = {"", }
-    for _ in range(8):
-        shuffled = base[:]
-        rng.shuffle(shuffled)
-        sig = ",".join(map(str, shuffled))
-        if sig in seen:
-            continue
-        seen.add(sig)
-        orders.append(shuffled)
-    return orders
-
-
 def plan(graph: Graph) -> list[Drone]:
-    """Plan trajectories for all drones, trying several orderings."""
+    """Plan trajectories for all drones in a single ascending pass."""
     graph.validate()
     base = _base_cost(graph)
     n = graph.num_drones
-    horizon = min(MAX_HORIZON, base * 2 + n * (base + 1) + 64)
-    best: list[Drone] | None = None
-    best_score = -1
-    for order in _candidate_orders(n):
-        result = _plan_for_order(graph, order, horizon)
-        if result is None:
-            continue
-        score = _makespan(result)
-        if best is None or score < best_score:
-            best = result
-            best_score = score
-    if best is None:
-        # Fallback: plan in ascending order, surfacing any error.
-        ascending = list(range(1, n + 1))
-        return _plan_for_order(graph, ascending, horizon) or []
-    return best
+    cap = max(FLOOR_HORIZON, MAX_STATES // max(1, len(graph.zones)))
+    horizon = min(cap, base * 2 + n * (base + 1) + 64)
+    return _plan_all(graph, horizon)

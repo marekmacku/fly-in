@@ -1,0 +1,9 @@
+# zone names must be unique
+nb_drones: 2
+start_hub: alpha 0 0
+end_hub: omega 9 9
+hub: mid 4 4
+connection: alpha-mid
+# alpha is redefined below
+hub: alpha 5 5
+connection: mid-omega

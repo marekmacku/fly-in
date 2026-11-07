@@ -1,0 +1,7 @@
+nb_drones: 2
+# CRLF line endings must not break parsing
+start_hub: s 0 0
+end_hub: e 4 0
+hub: m 2 0	
+connection: s-m
+connection: m-e

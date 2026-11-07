@@ -1,0 +1,9 @@
+# nb_drones must come before any zone
+# (comments are fine before it, definitions are not)
+
+hub: mid 1 1
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 9 9
+connection: s-mid
+connection: mid-e

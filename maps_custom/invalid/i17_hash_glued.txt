@@ -1,0 +1,8 @@
+# a hash glued to a token is NOT a comment
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+# the y coordinate below is 2#note
+hub: m 1 2#note
+connection: s-m
+connection: m-e

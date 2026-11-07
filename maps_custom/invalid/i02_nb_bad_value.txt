@@ -1,0 +1,8 @@
+# drone count must be a positive integer
+# 2.5 is not an integer
+
+# padding to push the error deeper
+nb_drones: 2.5
+start_hub: s 0 0
+end_hub: e 9 9
+connection: s-e

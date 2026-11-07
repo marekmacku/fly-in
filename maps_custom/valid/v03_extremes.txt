@@ -1,0 +1,9 @@
+# extreme-but-legal values
+nb_drones: 99
+start_hub: origin -1000000 -1000000
+end_hub: target 1000000 1000000
+hub: farleft -999999 0 [max_drones=999]
+hub: farright 999999 0 [max_drones=999]
+connection: origin-farleft [max_link_capacity=500]
+connection: farleft-farright [max_link_capacity=999]
+connection: farright-target

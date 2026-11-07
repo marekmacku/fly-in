@@ -1,0 +1,7 @@
+# a zone cannot connect to itself
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+connection: s-e
+# loop below
+connection: s-s

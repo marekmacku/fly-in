@@ -1,0 +1,8 @@
+# metadata must be the final token group on a line
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+# junk after the bracket block
+hub: m 1 1 [color=red] junk
+connection: s-m
+connection: m-e

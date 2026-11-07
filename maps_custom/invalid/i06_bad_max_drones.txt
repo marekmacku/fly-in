@@ -1,0 +1,8 @@
+# capacities must be positive integers
+nb_drones: 3
+start_hub: s 0 0
+end_hub: e 9 9
+# zero capacity is illegal
+hub: m 1 1 [max_drones=0]
+connection: s-m
+connection: m-e

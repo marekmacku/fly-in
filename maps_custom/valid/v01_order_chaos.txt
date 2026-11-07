@@ -1,0 +1,12 @@
+# order means nothing (except nb_drones first)
+# end hub before start hub, connections interleaved
+
+nb_drones: 3
+end_hub: goal 7 7 [color=red]
+hub: left 2 1
+connection: left-goal
+start_hub: base 0 0
+hub: right 4 1 [zone=priority max_drones=2 color=blue]
+connection: base-left
+connection: base-right
+connection: right-goal [max_link_capacity=2]

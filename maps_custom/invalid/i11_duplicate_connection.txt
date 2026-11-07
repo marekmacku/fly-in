@@ -1,0 +1,9 @@
+# a-b and b-a are the same connection
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+hub: m 1 1
+connection: s-m
+connection: m-e
+# same edge, reversed, below
+connection: e-m

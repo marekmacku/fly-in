@@ -1,0 +1,8 @@
+# forward references are illegal
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+# late is defined below - too late
+connection: s-late
+hub: late 3 3
+connection: late-e

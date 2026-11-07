@@ -1,0 +1,8 @@
+# dashes are reserved as the connection separator
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+# an illegal name below
+hub: way-point 2 2
+connection: s-way-point
+connection: way-point-e

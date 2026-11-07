@@ -1,0 +1,7 @@
+# every definition line needs a colon
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+# plain text below
+this line has no colon
+connection: s-e

@@ -1,0 +1,8 @@
+# only one metadata block per definition
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+# a second block below
+hub: m 1 1 [color=red] [zone=normal]
+connection: s-m
+connection: m-e

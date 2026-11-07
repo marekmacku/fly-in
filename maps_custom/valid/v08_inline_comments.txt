@@ -1,0 +1,6 @@
+nb_drones: 2   # fleet size
+start_hub: s 0 0 # home
+end_hub: e 5 5   # destination
+hub: m 2 2	# midway
+connection: s-m # first link
+connection: m-e [max_link_capacity=2]  # capacity hint

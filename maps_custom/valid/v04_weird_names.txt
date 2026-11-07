@@ -1,0 +1,14 @@
+# names: anything except dashes and spaces
+# (a colon inside a name must survive: split on the FIRST colon only)
+nb_drones: 1
+start_hub: S 0 0
+end_hub: e:nd 9 9
+hub: A1 1 1
+hub: a1 2 2
+hub: !?* 3 3
+hub: über 4 4
+connection: S-A1
+connection: A1-a1
+connection: a1-!?*
+connection: !?*-über
+connection: über-e:nd

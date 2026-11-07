@@ -1,0 +1,6 @@
+# only five prefixes exist: nb_drones, start_hub, end_hub, hub, connection
+nb_drones: 1
+start_hub: s 0 0
+# a typo below
+end_hubX: e 9 9
+connection: s-e

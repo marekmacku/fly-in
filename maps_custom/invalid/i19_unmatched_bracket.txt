@@ -1,0 +1,6 @@
+# brackets come in pairs
+nb_drones: 1
+start_hub: s 0 0
+# opening bracket missing below
+end_hub: e 9 9 color=red]
+connection: s-e

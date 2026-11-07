@@ -1,0 +1,9 @@
+# exactly one start hub is allowed
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+hub: m 1 1
+# a second start below
+start_hub: s2 2 2
+connection: s-m
+connection: m-e

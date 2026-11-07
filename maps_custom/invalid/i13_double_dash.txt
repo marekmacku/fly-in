@@ -1,0 +1,10 @@
+# one dash means one separator
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+hub: a 1 1
+hub: b 2 2
+# two zones or three?
+connection: s-a-b
+connection: a-b
+connection: b-e

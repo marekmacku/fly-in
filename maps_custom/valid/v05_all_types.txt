@@ -1,0 +1,15 @@
+# every zone type, capacity and color combination
+nb_drones: 4
+start_hub: s 0 0 [max_drones=1 color=green]
+end_hub: g 10 10 [zone=priority max_drones=7 color=gold]
+hub: normal1 1 1
+hub: restricted1 2 2 [zone=restricted color=red]
+hub: priority1 3 3 [zone=priority]
+hub: blocked1 4 4 [zone=blocked color=gray max_drones=5]
+hub: cap3 5 5 [max_drones=3]
+connection: s-normal1
+connection: normal1-restricted1
+connection: restricted1-priority1
+connection: priority1-cap3
+connection: cap3-g [max_link_capacity=2]
+connection: s-blocked1 [max_link_capacity=1 color=gray]

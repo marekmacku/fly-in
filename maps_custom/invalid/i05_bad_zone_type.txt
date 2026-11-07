@@ -1,0 +1,9 @@
+# zone types: normal, blocked, restricted, priority
+# nothing else is accepted
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+# invalid type below
+hub: m 1 1 [color=red zone=weird]
+connection: s-m
+connection: m-e

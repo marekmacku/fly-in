@@ -1,0 +1,7 @@
+# coordinates must be plain integers
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 9 9
+hub: m one 1
+connection: s-m
+connection: m-e

@@ -1,0 +1,5 @@
+# this map forgets the end hub
+nb_drones: 1
+start_hub: s 0 0
+hub: m 1 1
+connection: s-m

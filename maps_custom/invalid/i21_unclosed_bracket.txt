@@ -1,0 +1,8 @@
+# brackets come in pairs - opening without closing
+nb_drones: 1
+start_hub: s 0 0
+end_hub: e 9 9
+# no closing bracket below
+hub: m 1 1 [zone=restricted
+connection: s-m
+connection: m-e

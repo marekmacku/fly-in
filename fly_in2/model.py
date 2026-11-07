@@ -96,6 +96,11 @@ class TurnRecord:
     location: str | None
 
 
+def drone_label(drone_id: int) -> str:
+    """Return the 'D<id>' output label for a drone identifier."""
+    return f"D{drone_id}"
+
+
 @dataclass
 class Drone:
     """A drone routed from the start zone to the end zone."""
@@ -106,7 +111,7 @@ class Drone:
     @property
     def label(self) -> str:
         """Identifier used in simulation output, e.g. 'D3'."""
-        return f"D{self.drone_id}"
+        return drone_label(self.drone_id)
 
 
 @dataclass

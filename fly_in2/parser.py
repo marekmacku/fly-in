@@ -323,5 +323,9 @@ def parse_map_file(path: str) -> Graph:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             return parse_map(handle.read())
+    except UnicodeDecodeError as exc:
+        raise ParseError(
+            f"cannot read file '{path}': not valid UTF-8 text"
+        ) from exc
     except OSError as exc:
         raise ParseError(f"cannot read file '{path}': {exc}") from exc

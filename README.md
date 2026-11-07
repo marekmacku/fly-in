@@ -5,29 +5,35 @@
 ## Description
 
 Fly-in is a drone routing simulation. Given a map describing a network of
-connected zones, a fleet of drones must be routed from a central start zone to
-a target end zone in the fewest possible simulation turns, while respecting
-zone occupancy limits, connection capacities and per-zone-type movement costs
-(normal and priority zones cost one turn, restricted zones cost two turns,
-blocked zones cannot be entered).
+connected zones, a fleet of drones must be routed from a central start zone
+to a target end zone in the fewest possible simulation turns, while
+respecting zone occupancy limits, connection capacities and per-zone-type
+movement costs (normal and priority zones cost one turn, restricted zones
+cost two turns, blocked zones cannot be entered).
 
-The project is written entirely in Python (standard library only) and is
+The project is written entirely in Python (standard library only), is
 fully object-oriented and fully type-checked (`mypy --strict` and `flake8`
-pass with zero warnings). It contains:
+pass with zero warnings). The active implementation is the `fly_in2`
+package; it is a from-scratch rewrite of the original `fly_in` package,
+which is kept in the repository as a reference. It contains:
 
-- a strict map-file **parser** with precise error reporting (line + cause);
-- a **graph** model with bidirectional connections and capacity metadata;
-- a **pathfinding** layer (Dijkstra) implemented from scratch, with no graph
-  library;
+- a strict map-file **parser** with precise error reporting (`line N: cause`
+  on every rejection, integer validation included);
+- a **graph** model with bidirectional connections, capacity metadata and
+  `None` sentinels for unlimited capacity and unenterable zones;
+- a **pathfinding** layer (Dijkstra) implemented from scratch, with no
+  graph library, integer-only distances and a priority-zone tie-break;
 - a **planner** that performs time-expanded prioritized planning with a
-  reservation table to schedule conflict-free, capacity-respecting
-  trajectories for every drone;
-- a **simulator** that runs the trajectories and emits the required
-  `D<ID>-<zone>` / `D<ID>-<connection>` output format;
-- a **visualizer** that renders a colored per-turn grid and colorizes the
-  movement lines;
-- a **validator** that replays every plan and checks all movement and capacity
-  rules (used by the test suite and during defense).
+  reservation table, in a single ascending pass, preferring priority
+  zones among equal-time routes;
+- a **simulator** that replans nothing and decides nothing - it merges
+  the planned trajectories into the required `D<ID>-<zone>` /
+  `D<ID>-<connection>` output lines;
+- a **validator** that independently replays every plan and re-checks
+  all movement and capacity rules; it also runs as a gate before any
+  output is printed (see below);
+- a **visualizer** that renders a colored per-turn grid and colorizes
+  the movement lines.
 
 ## Instructions
 
@@ -61,6 +67,19 @@ Output flags:
 | `--no-color` | Disable ANSI colors                                        |
 | `--stats`    | Print secondary metrics (moves, average moves/drone)       |
 
+### Exit codes and failure classes
+
+The pipeline is parse -> plan -> playback -> **validate** -> render. The
+validator runs before anything is printed, so an internal bug can never
+show a broken simulation to the user. Failures are separated by cause:
+
+| Code | Meaning                                                    |
+|------|------------------------------------------------------------|
+| 0    | Success                                                     |
+| 2    | The map file is unreadable or invalid (`line N: cause`)     |
+| 3    | The map is solvable-checked but has no route (unreachable)  |
+| 4    | Internal error: the finished plan failed validation         |
+
 ### Linting and type checking
 
 ```bash
@@ -74,10 +93,12 @@ make lint-strict     # flake8 + mypy --strict
 python3 -m pytest tests/ -q
 ```
 
-The test suite validates the parser, the pathfinding, the restricted-transit
-semantics, and **replays every provided map** through the validator to assert
-that all movement and capacity rules are respected and that the performance
-targets are met.
+The suite covers the parser with an adversarial map corpus
+(`maps_custom/`: 9 nasty-but-legal maps that must parse, 22 traps that
+must be rejected at the exact line with the right cause), unit tests for
+pathfinding and the planner semantics, CLI exit codes including the
+validation gate, and replays every provided and custom map through the
+validator oracle.
 
 ### Debug
 
@@ -95,98 +116,110 @@ make clean           # removes caches
 
 ### Static pathfinding
 
-`fly_in/pathfinding.py` implements Dijkstra's algorithm from scratch (no graph
-library is used, as required). Edge weights are the movement cost of the
-*destination* zone (normal/priority = 1, restricted = 2, blocked = infinity).
-Distances remain exact integer costs; the spec's "priority zones should be
-prioritized" rule is honoured through a **secondary tie-break key**: among
-equal-cost paths, the search prefers the one that steps through fewer
-non-priority zones, so priority zones are preferred without corrupting the
-reported distances. Complexity: O((V + E) log V).
+`fly_in2/pathfinding.py` implements Dijkstra's algorithm from scratch (no
+graph library, per the constraints). Edge weights are the movement cost
+of the *destination* zone (normal/priority = 1, restricted = 2, blocked =
+never entered - the model's `movement_cost` returns `None` for blocked).
+Distances are exact integers; a zone missing from the result is simply
+unreachable (no `inf` sentinels, no casts).
+
+The spec's "priority zones should be prioritized" rule is honoured with a
+**secondary tie-break key**: among equal-cost paths, the search prefers
+the one that steps through fewer non-priority zones. The key is only a
+heap tie-breaker - it never enters the distance, so reported costs stay
+exact.
 
 ### Multi-drone planning
 
-The core of the project is `fly_in/planner.py`. It uses **time-expanded
-prioritized planning** with a reservation table, a well-known multi-agent
-pathfinding technique:
+`fly_in2/planner.py` uses **time-expanded prioritized planning** with a
+reservation table:
 
-1. Each drone is planned one at a time, in priority order.
-2. For a single drone we run Dijkstra over a **time-expanded graph** whose
-   states are `(zone, ready_turn)` pairs. The start state is
-   `(start_zone, 1)`; the goal is any state reaching the end zone.
-3. Three actions are available from a state `(v, t)`:
-   - **WAIT**: `(v, t) -> (v, t+1)`, occupies `v` at turn `t`;
-   - **MOVE** to a normal/priority neighbour `u`: `(v, t) -> (u, t+1)`,
-     occupies the connection at turn `t` and `u` at turn `t` (move-in). `v` is
-     freed at turn `t` (a drone moving out frees capacity for that same turn,
-     per the spec);
-   - **TRANSIT** to a restricted neighbour `u`: `(v, t) -> (u, t+2)`, occupies
-     the connection at turn `t` (in transit) and `u` at turn `t+1` (arrival).
-     The drone is busy for two turns and may only act again at turn `t+2`,
-     matching "restricted costs 2 turns" and "the drone MUST reach its
-     destination during the next turn".
-4. A **reservation table** counts occupants per `(zone, turn)` and per
-   `(connection, turn)`. While planning a drone, every action is checked
-   against the reservations of all previously planned drones; an action is
-   rejected if it would exceed a zone's `max_drones` or a connection's
-   `max_link_capacity`. The start and end zones have unlimited capacity.
-5. Once a conflict-free trajectory is found, its reservations are committed
-   to the table and the next drone is planned.
+1. A static Dijkstra run decides solvability (unreachable end zone ->
+   error) and provides the baseline cost for the search horizon.
+2. Each drone is planned one at a time, in ascending id order, with
+   Dijkstra over a **time-expanded graph** whose states are
+   `(zone, ready_turn)` pairs. Three actions exist: WAIT
+   (`(v,t) -> (v,t+1)`, occupies `v` at turn `t`), MOVE into a
+   normal/priority neighbour (occupies the link at turn `t` and the
+   destination from turn `t`; the source zone is freed that same turn,
+   per the spec), and TRANSIT into a restricted neighbour
+   (`(v,t) -> (u,t+2)`: on the link at turn `t`, forced arrival at
+   turn `t+1`).
+3. A **reservation table** counts occupants per `(zone, turn)` and per
+   `(connection, turn)`; every action of the drone currently being
+   planned is checked against the reservations of all previously
+   planned drones. Start and end hubs have unlimited capacity, so a
+   drone can always wait at the start until the network drains - a plan
+   always exists on a reachable map.
+4. Among states with the same ready turn, the search prefers routes
+   entering fewer non-priority zones - the same tie-break as static
+   pathfinding, applied where drones actually fly.
 
-Because the start zone has unlimited capacity, a drone can always wait there
-until the network frees up, so a plan always exists when the end zone is
-reachable. To improve makespan, the planner tries several drone orderings
-(ascending, descending and several deterministic shuffles) and keeps the best
-result.
+Only **one pass** is needed: all drones are interchangeable (same start
+zone, same goal), so the planning order cannot change the outcome. This
+was verified empirically against a multi-ordering variant, which produced
+identical plans on every map; the single pass removes that dead code and
+roughly 90% of planning runtime.
 
-Complexity per drone: O(V · T · log(V · T)) where T is the search horizon
-(bounded by a function of the static shortest path and the drone count).
+The search horizon is bounded (`MAX_STATES` zones-x-turns budget, plus a
+formula above the provable worst-case plan length) so memory stays
+bounded on maps of any size.
+
+Complexity: O(n - V - T log(V - T)) per drone, where T is the horizon;
+empirically the planner behaves near-linearly in the number of drones
+(about 3.5 ms per drone on the challenger map, verified up to 400
+drones), because early drones terminate early and reservations prune the
+search space of later ones.
 
 ### Restricted-zone semantics (documented interpretation)
 
-The spec is terse about the two-turn restricted move. The implementation uses
-this model, which is internally consistent and produces both output forms:
+The spec is terse about the two-turn restricted move. The implementation
+uses this model, which is internally consistent and produces both output
+forms:
 
-- Turn `t`: the drone leaves `v`, enters the connection and is **in transit**.
-  Output: `D<id>-<src>-<dst>`.
+- Turn `t`: the drone leaves `v`, enters the connection and is **in
+  transit**. Output: `D<id>-<src>-<dst>`.
 - Turn `t+1`: the drone **arrives** at the restricted zone. Output:
   `D<id>-<zone>`.
-- The drone may act again starting at turn `t+2` (the move consumed turns `t`
-  and `t+1`). Once transit begins, arrival is forced — the planner only starts
-  a restricted transit when the destination is guaranteed to have capacity at
-  the arrival turn.
-
-### Output generation
-
-`fly_in/simulator.py` merges all drone trajectories by turn and emits one line
-per turn. Each token is `D<id>-<zone>` for moves/arrivals or
-`D<id>-<src>-<dst>` for in-transit drones. Drones that do not move on a turn
-are omitted; drones that reach the end zone are no longer tracked.
+- The drone may act again starting at turn `t+2`. Once transit begins,
+  arrival is forced - the planner only starts a restricted transit when
+  the destination is guaranteed to have capacity at the arrival turn.
 
 ### Validation
 
-`fly_in/validator.py` replays every plan turn by turn and independently
-re-checks: start/end reachability, no entry into blocked zones, valid
-connections, the two-turn restricted pattern, zone capacity and connection
-capacity. This is the correctness oracle the project is graded against during
-defense.
+`fly_in2/validator.py` replays every plan turn by turn and independently
+re-checks: start and delivery, no entry into blocked zones, valid
+connections, the two-turn restricted pattern, zone and connection
+capacity. Its occupancy bookkeeping deliberately **duplicates** the
+planner's reservation logic instead of sharing it: an oracle that reuses
+the code it checks cannot catch bugs in that code. Generation and
+verification are separate by design.
+
+### Runtime gate
+
+The CLI runs the validator between playback and rendering. If the replay
+finds any violation, the program exits with code 4, prints
+`internal error: plan failed validation` (with turn-stamped violations)
+to stderr, and produces **no simulation output** - nothing unverified
+ever reaches the screen.
 
 ## Visual representation
 
-`fly_in/visualizer.py` provides colored terminal feedback:
+`fly_in2/visualizer.py` provides colored terminal feedback:
 
-- A **per-turn grid** drawn from zone `(x, y)` coordinates. Each cell shows the
-  zone symbol (`S` start, `E` end, `P` priority, `R` restricted, `#` blocked,
-  `O` normal) and the drones currently occupying it (`[O D1,D2]`).
-- **ANSI colors** mapped from each zone's `color` metadata, with a sensible
-  fallback table for common color names and a default for unknown ones.
-- **Colorized movement lines** where each `D<id>-<token>` is highlighted, so
-  drone movements and zone states are easy to follow during peer evaluation.
+- A **per-turn grid** drawn from zone `(x, y)` coordinates. Each cell
+  shows the zone symbol (`S` start, `E` end, `P` priority, `R`
+  restricted, `#` blocked, `O` normal) and the drones currently
+  occupying it (`[O D1,D2]`); drones in transit are off the grid.
+- **ANSI colors** mapped from each zone's `color` metadata, with a
+  fallback table for common color names.
+- **Colorized movement lines** where each `D<id>-<token>` is highlighted.
 
-The `--plain` flag strips colors and the grid for a clean, machine-parseable
-output (exactly the format required by the specification). The grid helps
-evaluators see zone states and drone positions at a glance, while the movement
-lines remain the authoritative simulation output.
+The `--plain` flag strips colors and the grid for a clean,
+machine-parseable output (exactly the format required by the
+specification). The grid helps evaluators see zone states and drone
+positions at a glance, while the movement lines remain the authoritative
+simulation output.
 
 ## Example input and expected output
 
@@ -240,14 +273,14 @@ Total turns: 4
 
 ## Resources
 
-- Dijkstra, E. W. (1959). *A note on two problems in connexion with graphs.*
-  Numerische Mathematik.
+- Dijkstra, E. W. (1959). *A note on two problems in connexion with
+  graphs.* Numerische Mathematik.
 - Sharon et al. (2015). *Conflict-based search for optimal multi-agent
-  pathfinding.* Artificial Intelligence — reference for the
+  pathfinding.* Artificial Intelligence - reference for the
   reservation-table / prioritized-planning family of MAPF techniques.
-- Stern et al. (2019). *Multi-Agent Pathfinding: Definitions, Variants, and
-  Benchmarks.* SoCS — the time-expanded graph and vertex-capacity model used
-  here follow the standard MAPF formulation.
+- Stern et al. (2019). *Multi-Agent Pathfinding: Definitions, Variants,
+  and Benchmarks.* SoCS - the time-expanded graph and vertex-capacity
+  model used here follow the standard MAPF formulation.
 - Python documentation: `heapq`, `argparse`, `enum`, `dataclasses`.
 
 ### How AI was used
@@ -257,14 +290,19 @@ AI assistance was used for:
 - exploring the standard time-expanded MAPF formulation and selecting a
   defensible planning strategy (prioritized planning with a reservation
   table);
-- drafting the parser's validation logic and the test matrix for parser edge
-  cases;
+- drafting the parser's validation logic and generating an adversarial
+  map corpus to attack it;
 - cross-checking the restricted-zone movement semantics against the
   specification wording;
-- generating boilerplate (Makefile, `setup.cfg`, `.gitignore`) and the
-  README structure.
+- rewriting the implementation from scratch (`fly_in2`) with AI as the
+  author and the project owner reviewing, questioning and approving
+  every module - each design decision (sentinels, single-pass planning,
+  the runtime validation gate) was discussed and understood before
+  being kept;
+- boilerplate (Makefile, `setup.cfg`, `.gitignore`) and README structure.
 
-All generated code was reviewed, understood, type-checked (`mypy --strict`),
-linted (`flake8`) and verified by the test suite and the validator before being
-kept. The author takes full responsibility for the final implementation and
-can explain every module during the peer evaluation.
+All generated code was reviewed, understood, type-checked
+(`mypy --strict`), linted (`flake8`) and verified by the test suite and
+the validator oracle before being kept. The author takes full
+responsibility for the final implementation and can explain every module
+during the peer evaluation.

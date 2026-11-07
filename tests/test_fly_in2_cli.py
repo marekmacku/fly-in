@@ -55,6 +55,14 @@ def test_unsolvable_map_exits_3(tmp_path: Path) -> None:
     assert code == 3
 
 
+def test_binary_map_file_exits_2(tmp_path: Path) -> None:
+    """Non-UTF-8 garbage is rejected like any bad file, no crash."""
+    path = tmp_path / "garbage.bin"
+    path.write_bytes(b"\x00\xff\xfe\x81binary\x00junk")
+    code = cli.main([str(path), "--plain"], io.StringIO())
+    assert code == 2
+
+
 def test_gate_blocks_invalid_plan_with_no_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

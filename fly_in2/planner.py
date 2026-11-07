@@ -290,7 +290,8 @@ def plan(graph: Graph) -> list[Drone]:
     """Plan trajectories for all drones in a single ascending pass.
 
     Raises:
-        SimulationError: if the end zone is unreachable, or a drone
+        SimulationError: if the end zone is unreachable, the fleet is
+            too large to route within the bounded horizon, or a drone
             cannot be routed within the search horizon.
     """
     graph.validate()
@@ -298,4 +299,14 @@ def plan(graph: Graph) -> list[Drone]:
     n = graph.num_drones
     cap = max(FLOOR_HORIZON, MAX_STATES // max(1, len(graph.zones)))
     horizon = min(cap, base * 2 + n * (base + 1) + 64)
+    # Worst case, the last drone waits for all n-1 predecessors to
+    # clear the network, needing about base + n turns. If even that
+    # does not fit the bounded horizon, no plan can exist - fail fast
+    # instead of looping over an impossible fleet.
+    if base + n > horizon:
+        raise SimulationError(
+            f"too many drones ({n}): routing the fleet needs a "
+            f"horizon of at least {base + n} turns, bounded here to "
+            f"{horizon} by the per-map state budget"
+        )
     return _plan_all(graph, horizon)

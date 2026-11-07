@@ -13,6 +13,7 @@ from fly_in2.planner import plan
 from fly_in2.simulator import Simulator
 from fly_in2.validator import validate
 from fly_in2.visualizer import Visualizer
+from fly_in2 import gui
 
 
 def _print_stats(
@@ -52,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-color",
         action="store_true",
         help="disable ANSI colors in the output",
+    )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="animated pygame window (falls back to terminal output "
+        "if pygame is unavailable)",
     )
     parser.add_argument(
         "--stats",
@@ -101,6 +108,14 @@ def main(
 
     colored = not args.plain and not args.no_color
     show_grid = not args.plain and not args.no_grid
+    if args.gui:
+        if gui.launch(graph, result, drones):
+            if args.stats:
+                _print_stats(out, drones, result.makespan)
+            return 0
+        sys.stderr.write(
+            "note: pygame is not available; using terminal output\n"
+        )
     Visualizer(graph, out).render(result, drones, show_grid, colored)
     if args.stats:
         _print_stats(out, drones, result.makespan)

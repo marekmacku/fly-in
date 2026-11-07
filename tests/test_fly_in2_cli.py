@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import fly_in2.cli as cli
+from fly_in2 import gui as fly_gui
 from fly_in2.model import Drone, TurnRecord
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -79,3 +80,16 @@ def test_gate_blocks_invalid_plan_with_no_output(
     assert code == 4
     assert out.getvalue() == ""  # nothing unverified reaches the screen
     assert "internal error" in capsys.readouterr().err
+
+
+def test_gui_flag_falls_back_without_pygame(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--gui without pygame available still renders to the terminal."""
+    monkeypatch.setattr(fly_gui, "launch", lambda *a, **k: False)
+    out = io.StringIO()
+    code = cli.main([str(LINEAR), "--gui", "--plain"], out)
+    assert code == 0
+    assert "Total turns: 4" in out.getvalue()  # terminal fallback ran
+    assert "pygame" in capsys.readouterr().err

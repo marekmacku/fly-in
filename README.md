@@ -62,6 +62,7 @@ Output flags:
 
 | Flag         | Effect                                                    |
 |--------------|-----------------------------------------------------------|
+| `--gui`      | Animated pygame window (falls back to terminal output)    |
 | `--plain`    | Clean movement lines only (no color, no grid)            |
 | `--no-grid`  | Disable the per-turn grid, keep colored movement lines    |
 | `--no-color` | Disable ANSI colors                                        |
@@ -218,21 +219,28 @@ ever reaches the screen.
 
 ## Visual representation
 
-`fly_in2/visualizer.py` provides colored terminal feedback:
+Two visual modes are provided (the spec's "both options"):
 
-- A **per-turn grid** drawn from zone `(x, y)` coordinates. Each cell
-  shows the zone symbol (`S` start, `E` end, `P` priority, `R`
-  restricted, `#` blocked, `O` normal) and the drones currently
-  occupying it (`[O D1,D2]`); drones in transit are off the grid.
-- **ANSI colors** mapped from each zone's `color` metadata, with a
-  fallback table for common color names.
-- **Colorized movement lines** where each `D<id>-<token>` is highlighted.
+- **`--gui`: an animated pygame window.** Zones are drawn as colored
+  tiles at their map coordinates (colors from each zone's `color`
+  metadata, with per-type fallbacks), connections as links, and drones
+  as markers that move zone to zone each turn - drones in restricted
+  transit are drawn midway over their connection. Controls: space
+  pauses, right arrow steps one turn, q/escape quits. pygame is
+  imported lazily; if it is not installed the program notes it on
+  stderr and falls back to the terminal renderer, so the simulation
+  never fails because of the visualization. Only existing zones are
+  drawn, so absurd coordinate spans degrade gracefully instead of
+  hanging.
+- **Default: colored terminal output.** A per-turn grid drawn from
+  zone `(x, y)` coordinates (zone symbols `S`/`E`/`P`/`R`/`#`/`O` plus
+  occupying drones), ANSI colors from zone metadata with a fallback
+  table, and colorized movement lines.
 
 The `--plain` flag strips colors and the grid for a clean,
 machine-parseable output (exactly the format required by the
-specification). The grid helps evaluators see zone states and drone
-positions at a glance, while the movement lines remain the authoritative
-simulation output.
+specification). The movement lines remain the authoritative simulation
+output in every mode.
 
 ## Example input and expected output
 

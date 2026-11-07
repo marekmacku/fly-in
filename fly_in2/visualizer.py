@@ -98,7 +98,7 @@ class _Cell:
     drones: list[int]
 
 
-def _positions_per_turn(
+def positions_per_turn(
     graph: Graph, drones: list[Drone], n_turns: int
 ) -> list[dict[int, str | None]]:
     """Each drone's zone per turn (None while in transit).
@@ -211,7 +211,7 @@ class Visualizer:
     ) -> None:
         """Render the full, already-validated simulation."""
         out = self._stream
-        positions = _positions_per_turn(
+        positions = positions_per_turn(
             self._graph, drones, len(result.turns)
         )
         if show_grid:

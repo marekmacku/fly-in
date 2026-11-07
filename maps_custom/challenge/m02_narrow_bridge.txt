@@ -1,0 +1,12 @@
+# one capacity-1 bridge: six drones must queue through it
+# expected: 4 hops + 5 queueing turns = 9
+nb_drones: 6
+start_hub: s 0 0
+hub: a 1 0 [max_drones=3]
+hub: bridge 2 0 [max_drones=1]
+hub: c 3 0 [max_drones=3]
+end_hub: e 4 0
+connection: s-a
+connection: a-bridge
+connection: bridge-c
+connection: c-e

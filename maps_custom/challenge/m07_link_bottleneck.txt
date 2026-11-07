@@ -1,0 +1,10 @@
+# zones have room (cap 4) but the single link does not (cap 1):
+# four drones serialize on the crossing - expected 3 + 3 = 6 turns
+nb_drones: 4
+start_hub: s 0 0
+hub: a 1 0 [max_drones=4]
+hub: b 2 0 [max_drones=4]
+end_hub: e 3 0
+connection: s-a
+connection: a-b [max_link_capacity=1]
+connection: b-e

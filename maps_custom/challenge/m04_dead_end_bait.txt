@@ -1,0 +1,13 @@
+# priority bait sits in dead ends: no drone may be lured off the real path
+nb_drones: 3
+start_hub: s 0 0
+hub: main1 1 0
+hub: main2 2 0
+end_hub: e 3 0
+hub: bait1 1 1 [zone=priority]
+hub: bait2 2 1 [zone=priority]
+connection: s-main1
+connection: main1-main2
+connection: main2-e
+connection: s-bait1
+connection: bait1-bait2

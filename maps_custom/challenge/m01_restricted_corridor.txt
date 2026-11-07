@@ -1,0 +1,9 @@
+# every hop into a restricted zone costs two full turns
+nb_drones: 1
+start_hub: s 0 0
+hub: r1 1 0 [zone=restricted]
+hub: r2 2 0 [zone=restricted]
+end_hub: e 3 0
+connection: s-r1
+connection: r1-r2
+connection: r2-e

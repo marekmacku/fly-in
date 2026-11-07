@@ -1,0 +1,15 @@
+# a high-capacity hub with wide links: eight drones in three turns
+nb_drones: 8
+start_hub: s 0 0
+hub: hubc 2 0 [max_drones=8]
+hub: n1 3 1
+hub: n2 3 -1
+hub: w1 1 1
+hub: w2 1 -1
+end_hub: e 4 0
+connection: s-hubc [max_link_capacity=4]
+connection: hubc-e [max_link_capacity=4]
+connection: hubc-n1
+connection: hubc-n2
+connection: hubc-w1
+connection: hubc-w2

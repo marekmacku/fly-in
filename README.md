@@ -95,10 +95,23 @@ python3 -m pytest tests/ -q
 
 The suite covers the parser with an adversarial map corpus
 (`maps_custom/`: 9 nasty-but-legal maps that must parse, 22 traps that
-must be rejected at the exact line with the right cause), unit tests for
-pathfinding and the planner semantics, CLI exit codes including the
-validation gate, and replays every provided and custom map through the
-validator oracle.
+must be rejected at the exact line with the right cause, and 10
+challenge maps with hand-computed expected turn counts), unit tests
+for pathfinding and the planner semantics, CLI exit codes including
+the validation gate, and replays every provided and custom map through
+the validator oracle.
+
+### Known limitation (documented honestly)
+
+Greedy prioritized planning can pile every drone onto one corridor
+when a map offers two parallel routes of slightly different length:
+each drone's individually fastest route is the same one, so the fleet
+ignores the second corridor. The challenge map
+`maps_custom/challenge/m08_big_world.txt` demonstrates this (31 turns
+versus a theoretical ~22 with perfect route splitting). All provided
+benchmark targets are met regardless; fixing this properly requires
+route-diversity heuristics or an optimal MAPF solver such as
+Conflict-Based Search.
 
 ### Debug
 

@@ -1,0 +1,15 @@
+# the restricted crack (3 turns) beats the priority highway (4 turns):
+# cost always dominates preference - priority only wins ties
+nb_drones: 1
+start_hub: s 0 0
+hub: p1 1 1 [zone=priority]
+hub: p2 2 1 [zone=priority]
+hub: p3 3 1 [zone=priority]
+hub: crack 2 0 [zone=restricted]
+end_hub: e 4 0
+connection: s-p1
+connection: p1-p2
+connection: p2-p3
+connection: p3-e
+connection: s-crack
+connection: crack-e

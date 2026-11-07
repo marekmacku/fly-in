@@ -1,0 +1,7 @@
+# two drones, one restricted zone: the second must wait out the transit
+nb_drones: 2
+start_hub: s 0 0
+hub: r 1 0 [zone=restricted]
+end_hub: e 2 0
+connection: s-r
+connection: r-e

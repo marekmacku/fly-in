@@ -1,0 +1,21 @@
+# a blocked wall with a restricted crack: the crack is worth its 2 turns
+# crack route = 3 turns; detour around the wall = 6 turns
+nb_drones: 3
+start_hub: s 0 2
+hub: crack 2 2 [zone=restricted]
+end_hub: e 4 2
+hub: walltop 2 3 [zone=blocked]
+hub: wallbottom 2 1 [zone=blocked]
+hub: det1 0 0
+hub: det2 1 0
+hub: det3 2 0
+hub: det4 3 0
+hub: det5 4 0
+connection: s-crack
+connection: crack-e
+connection: s-det1
+connection: det1-det2
+connection: det2-det3
+connection: det3-det4
+connection: det4-det5
+connection: det5-e

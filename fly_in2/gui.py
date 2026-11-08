@@ -48,22 +48,21 @@ _TYPE_RGB: dict[ZoneType, tuple[int, int, int]] = {
     ZoneType.BLOCKED: (74, 76, 82),
 }
 
-# Light theme, matching the subject's example figures: near-white
-# background, saturated zone circles, gray links, dark text.
-_BG = (248, 248, 248)
-_PANEL = (238, 238, 241)
-_DOT = (224, 226, 230)
-_LINK = (198, 200, 208)
-_FG = (40, 42, 48)
-_MUTED = (124, 128, 140)
-_DRONE_RGB = (28, 28, 36)
-_DRONE_DIM = (168, 170, 178)
-_DRONE_BORDER = (250, 250, 252)
-_DRONE_TEXT = (250, 250, 252)
-_ACCENT = (0, 0, 240)
+# Dark theme: black background, saturated zone circles, light text.
+_BG = (10, 10, 14)
+_PANEL = (18, 19, 26)
+_DOT = (28, 30, 40)
+_LINK = (96, 98, 112)
+_FG = (236, 236, 242)
+_MUTED = (150, 154, 168)
+_DRONE_RGB = (246, 246, 250)
+_DRONE_DIM = (112, 114, 124)
+_DRONE_BORDER = (20, 20, 26)
+_DRONE_TEXT = (28, 28, 36)
+_ACCENT = (94, 158, 236)
 
 # Static sizing, in points; multiplied by the display's DPI scale.
-_PITCH = 130          # grid pitch between zone centres
+_PITCH = 170          # grid pitch: long visible links, no clutter
 _PAD = 48             # breathing room on every side
 _HEADER = 46          # status bar height
 _FOOTER = 38          # controls bar height
@@ -92,21 +91,9 @@ def _shade(rgb: tuple[int, int, int], k: int) -> tuple[int, int, int]:
     )
 
 
-def _lum(rgb: tuple[int, int, int]) -> int:
-    """Perceived luminance, 0..255."""
-    return (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) // 1000
-
-
 def _edge(fill: tuple[int, int, int]) -> tuple[int, int, int]:
-    """A crisp border color for a circle: darker on bright fills."""
-    return _shade(fill, -45) if _lum(fill) > 140 else _shade(fill, 55)
-
-
-def _text_on(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
-    """Readable text color on top of the given fill."""
-    if _lum(rgb) > 140:
-        return (22, 24, 30)
-    return (246, 246, 250)
+    """A lighter border color: reads well on the black background."""
+    return _shade(fill, 55)
 
 
 def _spans(graph: Graph) -> tuple[int, int]:
@@ -167,8 +154,8 @@ def _layout(graph: Graph, px: tuple[int, int], scale: int) -> _Layout:
 
 
 def _zone_radius(pitch: int) -> int:
-    """Circle radius: deliberately smaller than the pitch."""
-    return max(6, int(pitch * 0.44))
+    """Circle radius: well below the pitch so links stay long."""
+    return max(6, int(pitch * 0.36))
 
 
 def _transit_edges(
@@ -303,46 +290,36 @@ def _draw_world(
         # Start and end hubs get visibly larger circles.
         zone_r = radius
         if zone.is_start or zone.is_end:
-            zone_r = min(pitch // 2 - 4 * scale, int(radius * 1.3))
+            zone_r = min(pitch // 2 - 4 * scale, int(radius * 1.25))
         pygame.draw.circle(screen, fill, (cx, cy), zone_r)
         edge = _edge(fill)
+        pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2 * scale)
         if zone.zone_type is ZoneType.BLOCKED:
-            pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2 * scale)
             d = int(zone_r * 0.5)
             pygame.draw.line(
-                screen, _shade(fill, 120), (cx - d, cy - d),
+                screen, _shade(fill, 130), (cx - d, cy - d),
                 (cx + d, cy + d), 3 * scale,
             )
             pygame.draw.line(
-                screen, _shade(fill, 120), (cx - d, cy + d),
+                screen, _shade(fill, 130), (cx - d, cy + d),
                 (cx + d, cy - d), 3 * scale,
             )
-            if pitch >= 40 * scale:
-                label = fonts[1].render(name, True, _MUTED)
-                screen.blit(
-                    label,
-                    label.get_rect(midtop=(cx, cy + zone_r + 3 * scale)),
-                )
-            continue
-        pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2 * scale)
-        if zone.is_start or zone.is_end:
+        elif zone.is_start or zone.is_end:
             pygame.draw.circle(
                 screen, edge, (cx, cy), zone_r + 4 * scale, 2 * scale
             )
-        if pitch >= 40 * scale:
-            # Name inside the circle, shrinking to fit; below if wide.
-            color = _text_on(fill)
-            label = fonts[1].render(name, True, color)
-            if label.get_width() > zone_r * 1.9:
-                label = fonts[2].render(name, True, color)
-            if label.get_width() > zone_r * 1.9:
-                screen.blit(
-                    label,
-                    label.get_rect(midtop=(cx, cy + zone_r + 3 * scale)),
-                )
-            else:
-                screen.blit(label, label.get_rect(center=(cx, cy)))
-    drone_r = max(6 * scale, min(14 * scale, pitch // 9))
+        # The name sits below the circle, never inside it: the centre
+        # belongs to the drones, so the two labels cannot collide.
+        if pitch >= 60 * scale:
+            label = fonts[2].render(
+                name, True, _MUTED if zone.zone_type is ZoneType.BLOCKED
+                else _FG
+            )
+            screen.blit(
+                label,
+                label.get_rect(midtop=(cx, cy + zone_r + 4 * scale)),
+            )
+    drone_r = max(6 * scale, min(14 * scale, pitch // 11))
     for did, point in frame_a.items():
         target = frame_b.get(did, point)
         x, y = _lerp(point, target, frac)
@@ -350,9 +327,8 @@ def _draw_world(
         color = _DRONE_DIM if dim else _DRONE_RGB
         pygame.draw.circle(screen, color, (x, y), drone_r)
         pygame.draw.circle(screen, _DRONE_BORDER, (x, y), drone_r, 2)
-        if pitch >= 52 * scale:
-            tag_color = _FG if dim else _DRONE_TEXT
-            tag = fonts[2].render(f"D{did}", True, tag_color)
+        if pitch >= 60 * scale:
+            tag = fonts[2].render(f"D{did}", True, _DRONE_TEXT)
             screen.blit(tag, tag.get_rect(center=(x, y)))
 
 

@@ -153,6 +153,44 @@ def _layout(graph: Graph, px: tuple[int, int], scale: int) -> _Layout:
     )
 
 
+def _origin(
+    layout: _Layout, span_x: int, span_y: int
+) -> tuple[int, int]:
+    """Top-left pixel of the zone grid within the surface."""
+    x0 = (layout.px[0] - span_x * layout.pitch) // 2
+    y0 = layout.header + (
+        layout.px[1] - layout.header - layout.footer - span_y * layout.pitch
+    ) // 2
+    return x0, y0
+
+
+def _make_background(pygame: Any, graph: Graph, layout: _Layout) -> Any:
+    """Background surface: black with a lattice aligned to the zones.
+
+    The dots cover the entire window, not just the map area, and stay
+    aligned with the zone centres. Built once per layout and blitted
+    every frame, so a dense lattice costs nothing at runtime.
+    """
+    background = pygame.Surface(layout.px)
+    background.fill(_BG)
+    span_x, span_y = _spans(graph)
+    x0, y0 = _origin(layout, span_x, span_y)
+    # A lattice five times finer than the zone pitch, still anchored
+    # to it, so the dots reach the window edges instead of stopping
+    # at the map border.
+    step = max(14 * layout.scale, layout.pitch // 5)
+    radius = max(1, layout.scale)
+    for kx in range(-(x0 // step), (layout.px[0] - x0) // step + 1):
+        x = x0 + kx * step
+        if not 0 <= x < layout.px[0]:
+            continue
+        for ky in range(-(y0 // step), (layout.px[1] - y0) // step + 1):
+            y = y0 + ky * step
+            if 0 <= y < layout.px[1]:
+                pygame.draw.circle(background, _DOT, (x, y), radius)
+    return background
+
+
 def _zone_radius(pitch: int) -> int:
     """Circle radius: well below the pitch so links stay long."""
     return max(6, int(pitch * 0.36))
@@ -253,6 +291,7 @@ def _lerp(
 def _draw_world(
     pygame: Any,
     screen: Any,
+    background: Any,
     fonts: tuple[Any, Any, Any],
     graph: Graph,
     layout: _Layout,
@@ -262,23 +301,11 @@ def _draw_world(
     deliveries: dict[int, int],
     turn: int,
 ) -> None:
-    """Render one frame: lattice, links, zone circles, gliding drones."""
-    screen.fill(_BG)
+    """Render one frame: background, links, zones, gliding drones."""
+    screen.blit(background, (0, 0))
     scale = layout.scale
-    span_x, span_y = _spans(graph)
     pitch = layout.pitch
     radius = _zone_radius(pitch)
-    if span_x * span_y <= 4000:
-        x0 = (layout.px[0] - span_x * pitch) // 2
-        y0 = layout.header + (
-            layout.px[1] - layout.header - layout.footer - span_y * pitch
-        ) // 2
-        for gx in range(span_x + 1):
-            for gy in range(span_y + 1):
-                pygame.draw.circle(
-                    screen, _DOT, (x0 + gx * pitch, y0 + gy * pitch),
-                    scale,
-                )
     for conn in graph.connections.values():
         pygame.draw.line(
             screen, _LINK, layout.pixels[conn.src],
@@ -509,13 +536,14 @@ def launch(
         layout = _layout(graph, target.px, target.scale)
         fonts = _make_fonts(pygame, layout.scale)
         frames = _keyframes(graph, drones, len(result.turns), layout)
+        background = _make_background(pygame, graph, layout)
         turn = 0
         paused = False
         anim_start = pygame.time.get_ticks()
 
         def rebuild() -> None:
             """Relayout after a window resize (pitch stays static)."""
-            nonlocal layout, fonts, frames, target
+            nonlocal layout, fonts, frames, target, background
             if target.window is not None:
                 target = _Target(
                     window=target.window,
@@ -524,6 +552,7 @@ def launch(
             layout = _layout(graph, target.px, target.scale)
             fonts = _make_fonts(pygame, layout.scale)
             frames = _keyframes(graph, drones, len(result.turns), layout)
+            background = _make_background(pygame, graph, layout)
 
         while True:
             for event in pygame.event.get():
@@ -567,7 +596,7 @@ def launch(
                 anim_start = now
                 frac = 0.0
             _draw_world(
-                pygame, target.screen, fonts, graph, layout,
+                pygame, target.screen, background, fonts, graph, layout,
                 frames[turn],
                 frames[min(turn + 1, last_turn)],
                 frac, deliveries, turn,

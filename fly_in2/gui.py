@@ -1,16 +1,18 @@
 """Animated pygame visualization of the simulation (optional --gui).
 
-Zones have a fixed size (pitch 130 points); the window sizes itself
+Zones have a fixed size (pitch 170 points); the window sizes itself
 to the map and the pitch only shrinks when the map cannot fit the
 screen. Rendering goes through pygame's Window API with
 allow_high_dpi, so the surface is at the display's native resolution
 (no stretched, blurry upscaling). The animation starts at turn 0 -
 the whole fleet parked on the start zone - and drones glide between
 their per-turn positions; a drone flying a restricted move spends one
-full turn travelling along its connection before arriving.
+full turn travelling along its connection before arriving. The
+footer shows the simulation's own output line for the current turn,
+and zones with capacity above one carry a badge.
 
-Controls: space play/pause, left/right arrow step one turn,
-r restart, q or escape quit.
+Controls: space play/pause, left/right arrow step one turn, n/p next
+or previous map (tour mode), r restart, q or escape quit.
 
 pygame is imported lazily inside launch(), so the program runs fine
 without it; the CLI falls back to the colored terminal renderer.
@@ -21,11 +23,20 @@ gracefully instead of hanging.
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
+from fly_in2.errors import FlyInError
 from fly_in2.model import Drone, Graph, SimulationResult, Zone, ZoneType
+from fly_in2.parser import parse_map_file
+from fly_in2.planner import plan
+from fly_in2.simulator import Simulator
+from fly_in2.validator import validate
 from fly_in2.visualizer import positions_per_turn
+
+SessionEnd = Literal["quit", "next", "prev"]
 
 _COLOR_RGB: dict[str, tuple[int, int, int]] = {
     # Reference palette sampled from the subject's example figures.
@@ -346,6 +357,16 @@ def _draw_world(
                 label,
                 label.get_rect(midtop=(cx, cy + zone_r + 4 * scale)),
             )
+        # Capacity badge for zones that hold more than one drone.
+        if (zone.capacity is not None and zone.capacity > 1
+                and pitch >= 60 * scale):
+            bx = cx + int(zone_r * 0.78)
+            by = cy - int(zone_r * 0.78)
+            br = max(11 * scale, pitch // 12)
+            pygame.draw.circle(screen, _PANEL, (bx, by), br)
+            pygame.draw.circle(screen, _MUTED, (bx, by), br, 1)
+            badge = fonts[2].render(f"x{zone.capacity}", True, _FG)
+            screen.blit(badge, badge.get_rect(center=(bx, by)))
     drone_r = max(6 * scale, min(14 * scale, pitch // 11))
     for did, point in frame_a.items():
         target = frame_b.get(did, point)
@@ -368,32 +389,37 @@ def _draw_chrome(
     last_turn: int,
     makespan: int,
     paused: bool,
+    line: str,
+    map_label: str | None,
 ) -> None:
-    """Header with status, footer with controls, legend, progress bar."""
+    """Header (status, map name), footer (output line, legend), bar."""
     win_w, win_h = layout.px
     scale = layout.scale
     pygame.draw.rect(screen, _PANEL, (0, 0, win_w, layout.header))
     pygame.draw.rect(
         screen, _PANEL, (0, win_h - layout.footer, win_w, layout.footer)
     )
+    map_w = 0
+    if map_label:
+        glyph = fonts[2].render(map_label, True, _MUTED)
+        map_w = glyph.get_width()
+        screen.blit(
+            glyph,
+            glyph.get_rect(midright=(win_w - layout.pad, layout.header // 2)),
+        )
     if turn >= last_turn:
         status = f"DONE  total turns: {makespan}"
     else:
         status = "PAUSED" if paused else "PLAYING"
     title = fonts[0].render(
-        f"Fly-in   Turn {turn}/{last_turn}   {status}", True, _FG
+        f"Fly-in   Turn {turn}/{last_turn}   {status}"
+        "   -   space pause   arrows step   n/p map   r restart   q quit",
+        True, _FG,
     )
+    title_w = max(0, win_w - layout.pad - map_w - 3 * layout.pad)
     screen.blit(
-        title, (layout.pad, (layout.header - title.get_height()) // 2)
-    )
-    hint = fonts[2].render(
-        "space play/pause   left/right step   r restart   q quit",
-        True, _MUTED,
-    )
-    screen.blit(
-        hint,
-        (layout.pad,
-         win_h - layout.footer + (layout.footer - hint.get_height()) // 2),
+        title, (layout.pad, (layout.header - title.get_height()) // 2),
+        pygame.Rect(0, 0, title_w, title.get_height()),
     )
     legend_items = [
         ("S", (48, 120, 32)), ("E", (232, 48, 32)),
@@ -401,6 +427,9 @@ def _draw_chrome(
         ("R", _TYPE_RGB[ZoneType.RESTRICTED]),
         ("#", _MUTED), ("O", _TYPE_RGB[ZoneType.NORMAL]),
     ]
+    legend_w = sum(
+        fonts[2].size(letter)[0] + 22 * scale for letter, _ in legend_items
+    )
     lx = win_w - layout.pad
     mid_y = win_h - layout.footer // 2
     for letter, color in reversed(legend_items):
@@ -409,6 +438,15 @@ def _draw_chrome(
         lx -= glyph.get_width() + 6 * scale
         pygame.draw.circle(screen, color, (lx - 4 * scale, mid_y), 5 * scale)
         lx -= 16 * scale
+    if line:
+        glyph = fonts[2].render(line, True, _FG)
+        line_w = max(0, win_w - 2 * layout.pad - legend_w - 4 * scale)
+        screen.blit(
+            glyph,
+            (layout.pad,
+             win_h - layout.footer + (layout.footer - glyph.get_height()) // 2),
+            pygame.Rect(0, 0, line_w, glyph.get_height()),
+        )
     bar_x0, bar_x1 = layout.pad, win_w - layout.pad
     bar_y = win_h - 9 * scale
     pygame.draw.line(
@@ -509,30 +547,28 @@ def _desired_pts(pygame: Any, graph: Graph) -> tuple[int, int]:
     return (w, h)
 
 
-def launch(
+def _run(
+    pygame: Any,
     graph: Graph,
     result: SimulationResult,
     drones: list[Drone],
-    frame_delay_ms: int = 500,
+    map_label: str | None,
+    has_prev: bool,
+    has_next: bool,
+    frame_delay_ms: int,
     auto_exit: bool = False,
-) -> bool:
-    """Play the simulation in a window; False if pygame is unavailable.
+) -> SessionEnd:
+    """Animate one map; returns 'quit', 'next' or 'prev'.
 
-    auto_exit closes after the final turn instead of waiting for a
-    key press (used by the headless smoke test).
+    auto_exit closes after the final turn (used by the headless smoke
+    test): 'next' when another map follows, else 'quit'.
     """
-    try:
-        import pygame
-    except ImportError:
-        return False
-
     last_turn = max(1, len(result.turns))
     deliveries = _delivery_turns(drones)
     title = f"Fly-in - {len(drones)} drones"
 
-    pygame.init()
+    target = _make_target(pygame, title, _desired_pts(pygame, graph))
     try:
-        target = _make_target(pygame, title, _desired_pts(pygame, graph))
         layout = _layout(graph, target.px, target.scale)
         fonts = _make_fonts(pygame, layout.scale)
         frames = _keyframes(graph, drones, len(result.turns), layout)
@@ -557,7 +593,7 @@ def launch(
         while True:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    return True
+                    return "quit"
                 if event.type == pygame.VIDEORESIZE:
                     if target.window is None:
                         target = _Target(
@@ -571,7 +607,7 @@ def launch(
                     rebuild()
                 if event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_q, pygame.K_ESCAPE):
-                        return True
+                        return "quit"
                     if event.key == pygame.K_SPACE:
                         paused = not paused
                         anim_start = pygame.time.get_ticks()
@@ -585,6 +621,10 @@ def launch(
                         turn = 0
                         paused = False
                         anim_start = pygame.time.get_ticks()
+                    if event.key == pygame.K_n and has_next:
+                        return "next"
+                    if event.key == pygame.K_p and has_prev:
+                        return "prev"
             now = pygame.time.get_ticks()
             frac = (
                 1.0
@@ -601,14 +641,93 @@ def launch(
                 frames[min(turn + 1, last_turn)],
                 frac, deliveries, turn,
             )
+            line = result.turns[turn - 1] if turn >= 1 else ""
             _draw_chrome(
                 pygame, target.screen, fonts, layout, turn, last_turn,
-                result.makespan, paused,
+                result.makespan, paused, line, map_label,
             )
             target.flip()
             if auto_exit and turn >= last_turn:
                 pygame.time.wait(250)
-                return True
+                return "next" if has_next else "quit"
             pygame.time.wait(15)
+    finally:
+        if target.window is not None:
+            target.window.destroy()
+
+
+def _plan_map(
+    path: str,
+) -> tuple[Graph, SimulationResult, list[Drone]] | None:
+    """Parse, plan, simulate and validate one map; None on failure.
+
+    The same runtime gate as the CLI: an invalid plan never reaches
+    the screen.
+    """
+    try:
+        graph = parse_map_file(path)
+        drones = plan(graph)
+        result = Simulator(drones).run()
+        validate(graph, drones)
+    except FlyInError as exc:
+        sys.stderr.write(f"skipping {path}: {exc}\n")
+        return None
+    return graph, result, drones
+
+
+def launch(
+    graph: Graph,
+    result: SimulationResult,
+    drones: list[Drone],
+    frame_delay_ms: int = 500,
+    auto_exit: bool = False,
+) -> bool:
+    """Play one simulation in a window; False if pygame is unavailable."""
+    try:
+        import pygame
+    except ImportError:
+        return False
+    pygame.init()
+    try:
+        _run(
+            pygame, graph, result, drones, None, False, False,
+            frame_delay_ms, auto_exit,
+        )
+        return True
+    finally:
+        pygame.quit()
+
+
+def launch_tour(
+    paths: list[str],
+    index: int = 0,
+    frame_delay_ms: int = 500,
+    auto_exit: bool = False,
+) -> bool:
+    """Play maps in order, switching with n/p; False if no pygame."""
+    try:
+        import pygame
+    except ImportError:
+        return False
+    pygame.init()
+    try:
+        while 0 <= index < len(paths):
+            loaded = _plan_map(paths[index])
+            if loaded is None:
+                index += 1
+                continue
+            graph, result, drones = loaded
+            label = (
+                f"{Path(paths[index]).name}   {index + 1}/{len(paths)}"
+            )
+            action = _run(
+                pygame, graph, result, drones, label,
+                index > 0, index < len(paths) - 1,
+                frame_delay_ms, auto_exit,
+            )
+            if action == "quit":
+                return True
+            index += 1 if action == "next" else -1
+        return True
     finally:
         pygame.quit()

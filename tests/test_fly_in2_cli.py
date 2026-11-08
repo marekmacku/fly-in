@@ -93,3 +93,42 @@ def test_gui_flag_falls_back_without_pygame(
     assert code == 0
     assert "Total turns: 4" in out.getvalue()  # terminal fallback ran
     assert "pygame" in capsys.readouterr().err
+
+
+def test_tour_paths_ordered_easy_first_challenger_last() -> None:
+    """The tour covers all ten provided maps in benchmark order."""
+    paths = cli._tour_paths()
+    assert len(paths) == 10
+    assert paths[0].endswith("easy/01_linear_path.txt")
+    assert paths[-1].endswith("challenger/01_the_impossible_dream.txt")
+
+
+def test_no_map_arg_launches_the_tour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bare `main.py` (make run with no MAP) tours in the GUI."""
+    recorded: dict[str, object] = {}
+
+    def fake_tour(paths: list[str], index: int = 0) -> bool:
+        recorded["paths"] = paths
+        recorded["index"] = index
+        return True
+
+    monkeypatch.setattr(fly_gui, "launch_tour", fake_tour)
+    code = cli.main([], io.StringIO())
+    assert code == 0
+    assert recorded["index"] == 0
+    assert len(recorded["paths"]) == 10  # type: ignore[arg-type]
+
+
+def test_no_map_falls_back_to_terminal_without_pygame(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No pygame: the tour degrades to the first map on the terminal."""
+    monkeypatch.setattr(fly_gui, "launch_tour", lambda *a, **k: False)
+    out = io.StringIO()
+    code = cli.main(["--plain"], out)
+    assert code == 0
+    assert "Total turns: 4" in out.getvalue()
+    assert "pygame" in capsys.readouterr().err

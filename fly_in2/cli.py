@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import TextIO
 
 from fly_in2.errors import FlyInError
@@ -14,6 +15,15 @@ from fly_in2.simulator import Simulator
 from fly_in2.validator import validate
 from fly_in2.visualizer import Visualizer
 from fly_in2 import gui
+
+
+def _tour_paths() -> list[str]:
+    """Every provided map, easy through challenger, in order."""
+    root = Path(__file__).resolve().parent.parent / "maps_download"
+    ordered: list[str] = []
+    for level in ("easy", "medium", "hard", "challenger"):
+        ordered += sorted(str(p) for p in (root / level).glob("*.txt"))
+    return ordered
 
 
 def _print_stats(
@@ -37,7 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Route a fleet of drones through connected zones.",
     )
     parser.add_argument(
-        "map", help="path to the map file to simulate"
+        "map",
+        nargs="?",
+        default=None,
+        help="path to the map file to simulate; omit to tour every "
+        "provided map in the GUI (easy through challenger)",
     )
     parser.add_argument(
         "--plain",
@@ -84,6 +98,18 @@ def main(
     parser = build_parser()
     args = parser.parse_args(argv)
     out = stream if stream is not None else sys.stdout
+    if args.map is None:
+        paths = _tour_paths()
+        if not paths:
+            sys.stderr.write("error: no maps found under maps_download\n")
+            return 2
+        if gui.launch_tour(paths):
+            return 0
+        sys.stderr.write(
+            "note: pygame is not available; showing the first map "
+            "in the terminal\n"
+        )
+        args.map = paths[0]
     try:
         graph = parse_map_file(args.map)
     except FlyInError as exc:

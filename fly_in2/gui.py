@@ -334,7 +334,7 @@ def _make_map_layer(
         zone_r = base_r
         if zone.is_start or zone.is_end:
             zone_r = min(
-                layout.pitch // 2 - 4 * layout.scale, int(base_r * 1.25)
+                layout.pitch // 2 - 4 * layout.scale, int(base_r * 1.15)
             )
         _draw_zone(
             pygame, layer, fonts, zone, cx, cy, zone_r,
@@ -345,7 +345,7 @@ def _make_map_layer(
 
 def _zone_radius(pitch: int) -> int:
     """Circle radius: well below the pitch so links stay long."""
-    return max(6, int(pitch * 0.36))
+    return max(6, int(pitch * 0.30))
 
 
 def _drone_radius(pitch: int, scale: int) -> int:
@@ -568,11 +568,11 @@ def _make_fonts(pygame: Any, layout: _Layout) -> tuple[Any, Any, Any, Any]:
     scale = layout.scale
     pitch = layout.pitch
     # Vertical room under a circle before the next row's circle:
-    # with r = 0.36 * pitch, the label band must fit in 0.28 * pitch.
+    # with r = 0.30 * pitch, the label band can use 0.40 * pitch.
     # The default font's real height is about 0.65x its nominal size
     # (measured), hence the divisor.
-    name_size = int((pitch * 0.28 - 4 * scale) / 0.65)
-    name_size = max(9 * scale, min(24 * scale, name_size))
+    name_size = int((pitch * 0.40 - 4 * scale) / 0.65)
+    name_size = max(9 * scale, min(26 * scale, name_size))
     drone_r = _drone_radius(pitch, scale)
     drone_size = max(9 * scale, min(17 * scale, int(drone_r * 0.9)))
     return (

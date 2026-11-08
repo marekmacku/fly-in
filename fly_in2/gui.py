@@ -179,20 +179,139 @@ def _origin(
     return x0, y0
 
 
-def _make_background(pygame: Any, graph: Graph, layout: _Layout) -> Any:
-    """Background surface: black with a lattice aligned to the zones.
+def _mix(
+    a: tuple[int, int, int], b: tuple[int, int, int], t: float
+) -> tuple[int, int, int]:
+    """Linear blend between two colors."""
+    return (
+        int(a[0] + (b[0] - a[0]) * t),
+        int(a[1] + (b[1] - a[1]) * t),
+        int(a[2] + (b[2] - a[2]) * t),
+    )
 
-    The dots cover the entire window, not just the map area, and stay
-    aligned with the zone centres. Built once per layout and blitted
-    every frame, so a dense lattice costs nothing at runtime.
+
+def _draw_zone(
+    pygame: Any,
+    layer: Any,
+    fonts: tuple[Any, Any, Any, Any],
+    zone: Zone,
+    cx: int,
+    cy: int,
+    zone_r: int,
+    pitch: int,
+    scale: int,
+) -> None:
+    """One zone: shaded ball, type decoration, name, capacity badge."""
+    fill = _zone_rgb(zone)
+    # Start and end hubs glow: faint rings stepping outward.
+    if zone.is_start or zone.is_end:
+        pygame.draw.circle(
+            layer, _shade(fill, 45), (cx, cy),
+            zone_r + 6 * scale, 1 * scale,
+        )
+        pygame.draw.circle(
+            layer, _shade(fill, 25), (cx, cy),
+            zone_r + 10 * scale, 1 * scale,
+        )
+    # Shaded ball: dark rim to light centre reads as a sphere.
+    rim = _shade(fill, -35)
+    core = _shade(fill, 30)
+    for i in range(6):
+        t = i / 5
+        rad = max(1, int(zone_r * (1.0 - 0.45 * t)))
+        pygame.draw.circle(layer, _mix(rim, core, t), (cx, cy), rad)
+    # Type decorations.
+    if zone.zone_type is ZoneType.RESTRICTED:
+        # Hazard stripes: 45-degree chords clipped to the circle.
+        u = math.sqrt(0.5)
+        step = max(5 * scale, zone_r // 4)
+        for off in range(-zone_r + step, zone_r, step):
+            half = math.sqrt(max(0.0, zone_r * zone_r - off * off))
+            ax = int(cx - u * off - u * half)
+            ay = int(cy + u * off - u * half)
+            bx = int(cx - u * off + u * half)
+            by = int(cy + u * off + u * half)
+            pygame.draw.line(
+                layer, _shade(fill, -55), (ax, ay), (bx, by), 2 * scale
+            )
+    elif zone.zone_type is ZoneType.PRIORITY:
+        # Bright inner ring marks the preferred lane.
+        pygame.draw.circle(
+            layer, _shade(fill, 80), (cx, cy),
+            max(2, int(zone_r * 0.55)), max(2 * scale, zone_r // 12),
+        )
+    if zone.zone_type is ZoneType.BLOCKED:
+        d = int(zone_r * 0.5)
+        pygame.draw.line(
+            layer, _shade(fill, 130), (cx - d, cy - d),
+            (cx + d, cy + d), 3 * scale,
+        )
+        pygame.draw.line(
+            layer, _shade(fill, 130), (cx - d, cy + d),
+            (cx + d, cy - d), 3 * scale,
+        )
+    if zone.is_start:
+        # Bullseye: launch point.
+        pygame.draw.circle(
+            layer, _shade(fill, 100), (cx, cy),
+            max(2 * scale, zone_r // 5),
+        )
+        pygame.draw.circle(
+            layer, _shade(fill, 100), (cx, cy),
+            max(3 * scale, zone_r // 2), 2 * scale,
+        )
+    elif zone.is_end and zone.zone_type is not ZoneType.BLOCKED:
+        # Target rings: the goal.
+        pygame.draw.circle(
+            layer, _shade(fill, 100), (cx, cy), int(zone_r * 0.6),
+            2 * scale,
+        )
+        pygame.draw.circle(
+            layer, _shade(fill, 100), (cx, cy), int(zone_r * 0.3),
+            2 * scale,
+        )
+    pygame.draw.circle(layer, _edge(fill), (cx, cy), zone_r, 2 * scale)
+    # Name below the circle: name font, then smaller font with the
+    # full name, then truncation - never inside, where drones live.
+    color = _MUTED if zone.zone_type is ZoneType.BLOCKED else _FG
+    limit = pitch * 0.95
+    shown = zone.name
+    label = fonts[2].render(shown, True, color)
+    if label.get_width() > limit:
+        label = fonts[3].render(shown, True, color)
+        while label.get_width() > limit and len(shown) > 4:
+            shown = shown[:-3] + ".."
+            label = fonts[3].render(shown, True, color)
+    layer.blit(
+        label, label.get_rect(midtop=(cx, cy + zone_r + 4 * scale))
+    )
+    # Capacity badge for zones that hold more than one drone.
+    if zone.capacity is not None and zone.capacity > 1:
+        bx = cx + int(zone_r * 0.78)
+        by = cy - int(zone_r * 0.78)
+        br = max(9 * scale, pitch // 13)
+        pygame.draw.circle(layer, _PANEL, (bx, by), br)
+        pygame.draw.circle(layer, _MUTED, (bx, by), br, 1)
+        badge = fonts[3].render(f"x{zone.capacity}", True, _FG)
+        layer.blit(badge, badge.get_rect(center=(bx, by)))
+
+
+def _make_map_layer(
+    pygame: Any,
+    graph: Graph,
+    layout: _Layout,
+    fonts: tuple[Any, Any, Any, Any],
+) -> Any:
+    """Static map art: lattice, links, decorated zones, names, badges.
+
+    Everything here is constant per layout, so it renders once and is
+    blitted every frame; per-frame work is only the drones. The dots
+    cover the entire window, aligned with the zone centres.
     """
-    background = pygame.Surface(layout.px)
-    background.fill(_BG)
+    layer = pygame.Surface(layout.px)
+    layer.fill(_BG)
     span_x, span_y = _spans(graph)
     x0, y0 = _origin(layout, span_x, span_y)
-    # A lattice five times finer than the zone pitch, still anchored
-    # to it, so the dots reach the window edges instead of stopping
-    # at the map border.
     step = max(14 * layout.scale, layout.pitch // 5)
     radius = max(1, layout.scale)
     for kx in range(-(x0 // step), (layout.px[0] - x0) // step + 1):
@@ -202,8 +321,26 @@ def _make_background(pygame: Any, graph: Graph, layout: _Layout) -> Any:
         for ky in range(-(y0 // step), (layout.px[1] - y0) // step + 1):
             y = y0 + ky * step
             if 0 <= y < layout.px[1]:
-                pygame.draw.circle(background, _DOT, (x, y), radius)
-    return background
+                pygame.draw.circle(layer, _DOT, (x, y), radius)
+    for conn in graph.connections.values():
+        pygame.draw.line(
+            layer, _LINK, layout.pixels[conn.src],
+            layout.pixels[conn.dst],
+            max(2 * layout.scale, layout.pitch // 40),
+        )
+    base_r = _zone_radius(layout.pitch)
+    for name, zone in graph.zones.items():
+        cx, cy = layout.pixels[name]
+        zone_r = base_r
+        if zone.is_start or zone.is_end:
+            zone_r = min(
+                layout.pitch // 2 - 4 * layout.scale, int(base_r * 1.25)
+            )
+        _draw_zone(
+            pygame, layer, fonts, zone, cx, cy, zone_r,
+            layout.pitch, layout.scale,
+        )
+    return layer
 
 
 def _zone_radius(pitch: int) -> int:
@@ -311,9 +448,8 @@ def _lerp(
 def _draw_world(
     pygame: Any,
     screen: Any,
-    background: Any,
+    layer: Any,
     fonts: tuple[Any, Any, Any, Any],
-    graph: Graph,
     layout: _Layout,
     frame_a: dict[int, tuple[int, int]],
     frame_b: dict[int, tuple[int, int]],
@@ -321,73 +457,10 @@ def _draw_world(
     deliveries: dict[int, int],
     turn: int,
 ) -> None:
-    """Render one frame: background, links, zones, gliding drones."""
-    screen.blit(background, (0, 0))
+    """Render one frame: blit the map layer, then the gliding drones."""
+    screen.blit(layer, (0, 0))
     scale = layout.scale
     pitch = layout.pitch
-    radius = _zone_radius(pitch)
-    for conn in graph.connections.values():
-        pygame.draw.line(
-            screen, _LINK, layout.pixels[conn.src],
-            layout.pixels[conn.dst], max(2 * scale, pitch // 40),
-        )
-    for name, zone in graph.zones.items():
-        cx, cy = layout.pixels[name]
-        fill = _zone_rgb(zone)
-        # Start and end hubs get visibly larger circles.
-        zone_r = radius
-        if zone.is_start or zone.is_end:
-            zone_r = min(pitch // 2 - 4 * scale, int(radius * 1.25))
-        pygame.draw.circle(screen, fill, (cx, cy), zone_r)
-        edge = _edge(fill)
-        pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2 * scale)
-        if zone.zone_type is ZoneType.BLOCKED:
-            d = int(zone_r * 0.5)
-            pygame.draw.line(
-                screen, _shade(fill, 130), (cx - d, cy - d),
-                (cx + d, cy + d), 3 * scale,
-            )
-            pygame.draw.line(
-                screen, _shade(fill, 130), (cx - d, cy + d),
-                (cx + d, cy - d), 3 * scale,
-            )
-        elif zone.is_start or zone.is_end:
-            pygame.draw.circle(
-                screen, edge, (cx, cy), zone_r + 4 * scale, 2 * scale
-            )
-        # The name sits below the circle, never inside it: the centre
-        # belongs to the drones. Fitting ladder: name font, then the
-        # smaller drone font (full name, just smaller), then
-        # truncation - so text shows even on the densest maps, and
-        # neighbours' labels can never touch.
-        color = (
-            _MUTED if zone.zone_type is ZoneType.BLOCKED else _FG
-        )
-        limit = pitch * 0.95
-        shown = name
-        label = fonts[2].render(shown, True, color)
-        if label.get_width() > limit:
-            smaller = fonts[3].render(shown, True, color)
-            if smaller.get_width() <= limit:
-                label = smaller
-            else:
-                label = smaller
-                while label.get_width() > limit and len(shown) > 4:
-                    shown = shown[:-3] + ".."
-                    label = fonts[3].render(shown, True, color)
-        screen.blit(
-            label,
-            label.get_rect(midtop=(cx, cy + zone_r + 4 * scale)),
-        )
-        # Capacity badge for zones that hold more than one drone.
-        if zone.capacity is not None and zone.capacity > 1:
-            bx = cx + int(zone_r * 0.78)
-            by = cy - int(zone_r * 0.78)
-            br = max(9 * scale, pitch // 13)
-            pygame.draw.circle(screen, _PANEL, (bx, by), br)
-            pygame.draw.circle(screen, _MUTED, (bx, by), br, 1)
-            badge = fonts[3].render(f"x{zone.capacity}", True, _FG)
-            screen.blit(badge, badge.get_rect(center=(bx, by)))
     drone_r = _drone_radius(pitch, scale)
     for did, point in frame_a.items():
         target = frame_b.get(did, point)
@@ -616,14 +689,14 @@ def _run(
         layout = _layout(graph, target.px, target.scale)
         fonts = _make_fonts(pygame, layout)
         frames = _keyframes(graph, drones, len(result.turns), layout)
-        background = _make_background(pygame, graph, layout)
+        layer = _make_map_layer(pygame, graph, layout, fonts)
         turn = 0
         paused = False
         anim_start = pygame.time.get_ticks()
 
         def rebuild() -> None:
             """Relayout after a window resize (pitch stays static)."""
-            nonlocal layout, fonts, frames, target, background
+            nonlocal layout, fonts, frames, target, layer
             if target.window is not None:
                 target = _Target(
                     window=target.window,
@@ -632,7 +705,7 @@ def _run(
             layout = _layout(graph, target.px, target.scale)
             fonts = _make_fonts(pygame, layout)
             frames = _keyframes(graph, drones, len(result.turns), layout)
-            background = _make_background(pygame, graph, layout)
+            layer = _make_map_layer(pygame, graph, layout, fonts)
 
         while True:
             for event in pygame.event.get():
@@ -680,7 +753,7 @@ def _run(
                 anim_start = now
                 frac = 0.0
             _draw_world(
-                pygame, target.screen, background, fonts, graph, layout,
+                pygame, target.screen, layer, fonts, layout,
                 frames[turn],
                 frames[min(turn + 1, last_turn)],
                 frac, deliveries, turn,

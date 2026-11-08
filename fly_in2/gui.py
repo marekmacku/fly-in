@@ -1,11 +1,13 @@
 """Animated pygame visualization of the simulation (optional --gui).
 
-The window scales itself to the map (and can be resized live with the
-mouse) and renders through pygame's SCALED mode so it stays crisp on
-high-DPI displays. The animation starts at turn 0 - the whole fleet
-parked on the start zone - and drones glide between their per-turn
-positions; a drone flying a restricted move spends one full turn
-travelling along its connection before arriving.
+Zones have a fixed size (pitch 130 points); the window sizes itself
+to the map and the pitch only shrinks when the map cannot fit the
+screen. Rendering goes through pygame's Window API with
+allow_high_dpi, so the surface is at the display's native resolution
+(no stretched, blurry upscaling). The animation starts at turn 0 -
+the whole fleet parked on the start zone - and drones glide between
+their per-turn positions; a drone flying a restricted move spends one
+full turn travelling along its connection before arriving.
 
 Controls: space play/pause, left/right arrow step one turn,
 r restart, q or escape quit.
@@ -60,13 +62,14 @@ _DRONE_BORDER = (250, 250, 252)
 _DRONE_TEXT = (250, 250, 252)
 _ACCENT = (0, 0, 240)
 
-_HEADER = 46
-_FOOTER = 38
-_PAD = 48          # breathing room on every side
-_MAX_CELL = 110
+# Static sizing, in points; multiplied by the display's DPI scale.
+_PITCH = 130          # grid pitch between zone centres
+_PAD = 48             # breathing room on every side
+_HEADER = 46          # status bar height
+_FOOTER = 38          # controls bar height
 _MIN_WIN = (560, 420)
 _HARD_MAX = (1920, 1200)
-_GOLDEN = 2.399963  # golden angle: even fan-out for co-located drones
+_GOLDEN = 2.399963    # golden angle: even fan-out for co-located drones
 
 
 def _zone_rgb(zone: Zone) -> tuple[int, int, int]:
@@ -89,15 +92,19 @@ def _shade(rgb: tuple[int, int, int], k: int) -> tuple[int, int, int]:
     )
 
 
+def _lum(rgb: tuple[int, int, int]) -> int:
+    """Perceived luminance, 0..255."""
+    return (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) // 1000
+
+
 def _edge(fill: tuple[int, int, int]) -> tuple[int, int, int]:
     """A crisp border color for a circle: darker on bright fills."""
-    lum = (fill[0] * 299 + fill[1] * 587 + fill[2] * 114) // 1000
-    return _shade(fill, -45) if lum > 140 else _shade(fill, 55)
+    return _shade(fill, -45) if _lum(fill) > 140 else _shade(fill, 55)
 
 
 def _text_on(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
     """Readable text color on top of the given fill."""
-    if (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) // 1000 > 140:
+    if _lum(rgb) > 140:
         return (22, 24, 30)
     return (246, 246, 250)
 
@@ -111,66 +118,57 @@ def _spans(graph: Graph) -> tuple[int, int]:
 
 @dataclass
 class _Layout:
-    """Everything geometry: window, cell size, zone pixel centres."""
+    """Geometry in physical pixels: pitch, chrome, zone centres."""
 
-    win: tuple[int, int]
-    cell: int
+    px: tuple[int, int]
+    scale: int
+    pitch: int
+    pad: int
+    header: int
+    footer: int
     pixels: dict[str, tuple[int, int]]
 
 
-def _layout(
-    pygame: Any, graph: Graph, forced: tuple[int, int] | None = None
-) -> _Layout:
-    """Fit the map into the screen (or the given window size).
+def _layout(graph: Graph, px: tuple[int, int], scale: int) -> _Layout:
+    """Place zones on a static-pitch grid, centered in the surface.
 
-    The cell is the grid pitch; zone circles are drawn smaller than
-    the cell so connections between neighbours stay visible.
+    The pitch is _PITCH points unless the map cannot fit, in which
+    case it shrinks just enough. It never grows: small maps get a
+    small window, not giant zones.
     """
     span_x, span_y = _spans(graph)
-    if forced is not None:
-        budget_w, budget_h = forced
-    else:
-        info = pygame.display.Info()
-        budget_w = min(1700, max(_MIN_WIN[0], int(info.current_w * 0.85)))
-        budget_h = min(1100, max(_MIN_WIN[1], int(info.current_h * 0.85)))
-    budget_w = min(budget_w, _HARD_MAX[0])
-    budget_h = min(budget_h, _HARD_MAX[1])
-    content_w = max(1, budget_w - 2 * _PAD)
-    content_h = max(1, budget_h - _HEADER - _FOOTER - 2 * _PAD)
-    cell = min(
-        _MAX_CELL,
-        content_w // max(1, span_x),
-        content_h // max(1, span_y),
+    pad, header, footer = _PAD * scale, _HEADER * scale, _FOOTER * scale
+    pitch = _PITCH * scale
+    fit = min(
+        max(1, (px[0] - 2 * pad) // max(1, span_x)),
+        max(1, (px[1] - header - footer - 2 * pad) // max(1, span_y)),
     )
-    cell = max(8, cell)
-    win_w = max(
-        _MIN_WIN[0], min(budget_w, span_x * cell + 2 * _PAD),
-    )
-    win_h = max(
-        _MIN_WIN[1],
-        min(budget_h, span_y * cell + _HEADER + _FOOTER + 2 * _PAD),
-    )
+    pitch = max(10, min(pitch, fit))
     xs = [z.x for z in graph.zones.values()]
     ys = [z.y for z in graph.zones.values()]
     min_x, max_y = min(xs), max(ys)
-    x0 = (win_w - span_x * cell) // 2
-    y0 = _HEADER + (win_h - _HEADER - _FOOTER - span_y * cell) // 2
+    x0 = (px[0] - span_x * pitch) // 2
+    y0 = header + (px[1] - header - footer - span_y * pitch) // 2
     return _Layout(
-        win=(win_w, win_h),
-        cell=cell,
+        px=px,
+        scale=scale,
+        pitch=pitch,
+        pad=pad,
+        header=header,
+        footer=footer,
         pixels={
             name: (
-                x0 + (z.x - min_x) * cell + cell // 2,
-                y0 + (max_y - z.y) * cell + cell // 2,
+                x0 + (z.x - min_x) * pitch + pitch // 2,
+                y0 + (max_y - z.y) * pitch + pitch // 2,
             )
             for name, z in graph.zones.items()
         },
     )
 
 
-def _zone_radius(cell: int) -> int:
-    """Circle radius: deliberately smaller than the cell pitch."""
-    return max(6, cell // 2 - max(7, cell // 6))
+def _zone_radius(pitch: int) -> int:
+    """Circle radius: deliberately smaller than the pitch."""
+    return max(6, int(pitch * 0.44))
 
 
 def _transit_edges(
@@ -200,7 +198,7 @@ def _delivery_turns(drones: list[Drone]) -> dict[int, int]:
 
 
 def _spread(
-    raw: dict[int, tuple[int, int]], cell: int
+    raw: dict[int, tuple[int, int]], pitch: int
 ) -> dict[int, tuple[int, int]]:
     """Fan out drones that share one point on a golden-angle spiral."""
     groups: dict[tuple[int, int], list[int]] = {}
@@ -211,7 +209,7 @@ def _spread(
         if len(ids) == 1:
             frame[ids[0]] = point
             continue
-        spread = min(max(10, cell // 2), 6 + 4 * len(ids))
+        spread = min(max(10, pitch // 2), 6 + 4 * len(ids))
         for k, did in enumerate(sorted(ids)):
             dist = 5 + (k * spread) // max(1, len(ids))
             frame[did] = (
@@ -238,7 +236,7 @@ def _keyframes(
     assert graph.start is not None
     start_pt = layout.pixels[graph.start.name]
     frames = [_spread(
-        {d.drone_id: start_pt for d in drones}, layout.cell
+        {d.drone_id: start_pt for d in drones}, layout.pitch
     )]
     for turn in range(1, n_turns + 1):
         raw: dict[int, tuple[int, int]] = {}
@@ -251,7 +249,7 @@ def _keyframes(
                 raw[did] = ((a[0] + b[0]) // 2, (a[1] + b[1]) // 2)
             else:
                 raw[did] = layout.pixels[loc]
-        frames.append(_spread(raw, layout.cell))
+        frames.append(_spread(raw, layout.pitch))
     return frames
 
 
@@ -279,68 +277,72 @@ def _draw_world(
 ) -> None:
     """Render one frame: lattice, links, zone circles, gliding drones."""
     screen.fill(_BG)
-    cell = layout.cell
+    scale = layout.scale
     span_x, span_y = _spans(graph)
+    pitch = layout.pitch
+    radius = _zone_radius(pitch)
     if span_x * span_y <= 4000:
-        x0 = (layout.win[0] - span_x * cell) // 2
-        y0 = _HEADER + (
-            layout.win[1] - _HEADER - _FOOTER - span_y * cell
+        x0 = (layout.px[0] - span_x * pitch) // 2
+        y0 = layout.header + (
+            layout.px[1] - layout.header - layout.footer - span_y * pitch
         ) // 2
         for gx in range(span_x + 1):
             for gy in range(span_y + 1):
                 pygame.draw.circle(
-                    screen, _DOT, (x0 + gx * cell, y0 + gy * cell), 1,
+                    screen, _DOT, (x0 + gx * pitch, y0 + gy * pitch),
+                    scale,
                 )
     for conn in graph.connections.values():
         pygame.draw.line(
             screen, _LINK, layout.pixels[conn.src],
-            layout.pixels[conn.dst], max(2, cell // 30),
+            layout.pixels[conn.dst], max(2 * scale, pitch // 40),
         )
-    radius = _zone_radius(cell)
     for name, zone in graph.zones.items():
         cx, cy = layout.pixels[name]
         fill = _zone_rgb(zone)
         # Start and end hubs get visibly larger circles.
         zone_r = radius
         if zone.is_start or zone.is_end:
-            zone_r = min(cell // 2 - 4, int(radius * 1.3))
+            zone_r = min(pitch // 2 - 4 * scale, int(radius * 1.3))
         pygame.draw.circle(screen, fill, (cx, cy), zone_r)
         edge = _edge(fill)
         if zone.zone_type is ZoneType.BLOCKED:
-            pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2)
+            pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2 * scale)
             d = int(zone_r * 0.5)
             pygame.draw.line(
                 screen, _shade(fill, 120), (cx - d, cy - d),
-                (cx + d, cy + d), 3,
+                (cx + d, cy + d), 3 * scale,
             )
             pygame.draw.line(
                 screen, _shade(fill, 120), (cx - d, cy + d),
-                (cx + d, cy - d), 3,
+                (cx + d, cy - d), 3 * scale,
             )
-            if cell >= 30:
+            if pitch >= 40 * scale:
                 label = fonts[1].render(name, True, _MUTED)
                 screen.blit(
                     label,
-                    label.get_rect(midtop=(cx, cy + zone_r + 3)),
+                    label.get_rect(midtop=(cx, cy + zone_r + 3 * scale)),
                 )
             continue
-        pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2)
+        pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2 * scale)
         if zone.is_start or zone.is_end:
-            pygame.draw.circle(screen, edge, (cx, cy), zone_r + 4, 2)
-        if cell >= 30:
+            pygame.draw.circle(
+                screen, edge, (cx, cy), zone_r + 4 * scale, 2 * scale
+            )
+        if pitch >= 40 * scale:
             # Name inside the circle, shrinking to fit; below if wide.
             color = _text_on(fill)
             label = fonts[1].render(name, True, color)
-            if label.get_width() > zone_r * 1.8:
+            if label.get_width() > zone_r * 1.9:
                 label = fonts[2].render(name, True, color)
-            if label.get_width() > zone_r * 1.8:
+            if label.get_width() > zone_r * 1.9:
                 screen.blit(
                     label,
-                    label.get_rect(midtop=(cx, cy + zone_r + 3)),
+                    label.get_rect(midtop=(cx, cy + zone_r + 3 * scale)),
                 )
             else:
                 screen.blit(label, label.get_rect(center=(cx, cy)))
-    drone_r = max(6, min(13, cell // 7))
+    drone_r = max(6 * scale, min(14 * scale, pitch // 9))
     for did, point in frame_a.items():
         target = frame_b.get(did, point)
         x, y = _lerp(point, target, frac)
@@ -348,7 +350,7 @@ def _draw_world(
         color = _DRONE_DIM if dim else _DRONE_RGB
         pygame.draw.circle(screen, color, (x, y), drone_r)
         pygame.draw.circle(screen, _DRONE_BORDER, (x, y), drone_r, 2)
-        if cell >= 44:
+        if pitch >= 52 * scale:
             tag_color = _FG if dim else _DRONE_TEXT
             tag = fonts[2].render(f"D{did}", True, tag_color)
             screen.blit(tag, tag.get_rect(center=(x, y)))
@@ -365,67 +367,143 @@ def _draw_chrome(
     paused: bool,
 ) -> None:
     """Header with status, footer with controls, legend, progress bar."""
-    win_w, win_h = layout.win
-    pygame.draw.rect(screen, _PANEL, (0, 0, win_w, _HEADER))
-    pygame.draw.rect(screen, _PANEL, (0, win_h - _FOOTER, win_w, _FOOTER))
+    win_w, win_h = layout.px
+    scale = layout.scale
+    pygame.draw.rect(screen, _PANEL, (0, 0, win_w, layout.header))
+    pygame.draw.rect(
+        screen, _PANEL, (0, win_h - layout.footer, win_w, layout.footer)
+    )
     if turn >= last_turn:
         status = f"DONE  total turns: {makespan}"
-    elif turn == 0:
-        status = "PAUSED" if paused else "PLAYING"
     else:
         status = "PAUSED" if paused else "PLAYING"
     title = fonts[0].render(
         f"Fly-in   Turn {turn}/{last_turn}   {status}", True, _FG
     )
-    screen.blit(title, (_PAD, (_HEADER - title.get_height()) // 2))
+    screen.blit(
+        title, (layout.pad, (layout.header - title.get_height()) // 2)
+    )
     hint = fonts[2].render(
         "space play/pause   left/right step   r restart   q quit",
         True, _MUTED,
     )
     screen.blit(
         hint,
-        (_PAD, win_h - _FOOTER + (_FOOTER - hint.get_height()) // 2),
+        (layout.pad,
+         win_h - layout.footer + (layout.footer - hint.get_height()) // 2),
     )
     legend_items = [
-        ("S", (84, 182, 96)), ("E", (228, 92, 92)),
+        ("S", (48, 120, 32)), ("E", (232, 48, 32)),
         ("P", _TYPE_RGB[ZoneType.PRIORITY]),
         ("R", _TYPE_RGB[ZoneType.RESTRICTED]),
         ("#", _MUTED), ("O", _TYPE_RGB[ZoneType.NORMAL]),
     ]
-    lx = win_w - _PAD
+    lx = win_w - layout.pad
+    mid_y = win_h - layout.footer // 2
     for letter, color in reversed(legend_items):
         glyph = fonts[2].render(letter, True, _FG)
-        screen.blit(glyph, glyph.get_rect(midright=(lx, win_h - 19)))
-        lx -= glyph.get_width() + 6
-        pygame.draw.circle(
-            screen, color, (lx - 4, win_h - _FOOTER // 2), 5
-        )
-        lx -= 16
-    bar_x0, bar_x1 = _PAD, win_w - _PAD
-    bar_y = win_h - 9
-    pygame.draw.line(screen, _DOT, (bar_x0, bar_y), (bar_x1, bar_y), 3)
+        screen.blit(glyph, glyph.get_rect(midright=(lx, mid_y)))
+        lx -= glyph.get_width() + 6 * scale
+        pygame.draw.circle(screen, color, (lx - 4 * scale, mid_y), 5 * scale)
+        lx -= 16 * scale
+    bar_x0, bar_x1 = layout.pad, win_w - layout.pad
+    bar_y = win_h - 9 * scale
+    pygame.draw.line(
+        screen, _DOT, (bar_x0, bar_y), (bar_x1, bar_y), 3 * scale
+    )
     frac = turn / last_turn if last_turn else 1.0
     head = bar_x0 + int((bar_x1 - bar_x0) * frac)
-    pygame.draw.line(screen, _ACCENT, (bar_x0, bar_y), (head, bar_y), 3)
-
-
-def _make_fonts(pygame: Any, cell: int) -> tuple[Any, Any, Any]:
-    """Header, zone-name and tag fonts sized for the current cell."""
-    return (
-        pygame.font.Font(None, 30),
-        pygame.font.Font(None, max(18, min(28, cell // 3))),
-        pygame.font.Font(None, max(16, min(24, cell // 4))),
+    pygame.draw.line(
+        screen, _ACCENT, (bar_x0, bar_y), (head, bar_y), 3 * scale
     )
 
 
-def _open_window(pygame: Any, win: tuple[int, int]) -> Any:
-    """Open the window, preferring the crisp SCALED mode."""
+def _make_fonts(pygame: Any, scale: int) -> tuple[Any, Any, Any]:
+    """Header, zone-name and tag fonts at the display's resolution."""
+    return (
+        pygame.font.Font(None, 30 * scale),
+        pygame.font.Font(None, 24 * scale),
+        pygame.font.Font(None, 17 * scale),
+    )
+
+
+@dataclass
+class _Target:
+    """The drawing surface, plus how to present it.
+
+    ``window`` is None on the classic set_mode fallback path.
+    """
+
+    window: Any | None
+    screen: Any
+
+    @property
+    def pts(self) -> tuple[int, int]:
+        """Window size in points."""
+        if self.window is not None:
+            w, h = self.window.size
+        else:
+            w, h = self.screen.get_size()
+        return (int(w), int(h))
+
+    @property
+    def px(self) -> tuple[int, int]:
+        """Surface size in physical pixels."""
+        w, h = self.screen.get_size()
+        return (int(w), int(h))
+
+    @property
+    def scale(self) -> int:
+        """Physical pixels per point (2 on Retina, 1 elsewhere)."""
+        if self.window is not None:
+            return max(1, self.px[0] // max(1, self.pts[0]))
+        return 1
+
+    def flip(self) -> None:
+        """Present the frame."""
+        if self.window is not None:
+            self.window.flip()
+        else:
+            import pygame  # noqa: PLC0415 - lazy like everywhere here
+            pygame.display.flip()
+
+
+def _make_target(
+    pygame: Any, title: str, pts: tuple[int, int]
+) -> _Target:
+    """Open a window, preferring native-resolution rendering."""
+    for kwargs in (
+        {"size": pts, "resizable": True, "allow_high_dpi": True},
+        {"size": pts, "resizable": True},
+    ):
+        try:
+            window = pygame.Window(title, **kwargs)
+            return _Target(window=window, screen=window.get_surface())
+        except (TypeError, pygame.error):
+            continue
+    screen = pygame.display.set_mode(pts, pygame.RESIZABLE)
+    return _Target(window=None, screen=screen)
+
+
+def _desired_pts(pygame: Any, graph: Graph) -> tuple[int, int]:
+    """Window size in points: the map at static pitch, screen-clamped."""
+    span_x, span_y = _spans(graph)
     try:
-        return pygame.display.set_mode(
-            win, pygame.SCALED | pygame.RESIZABLE
-        )
+        info = pygame.display.Info()
+        dw, dh = int(info.current_w), int(info.current_h)
     except pygame.error:
-        return pygame.display.set_mode(win, pygame.RESIZABLE)
+        dw, dh = _HARD_MAX
+    content_w = span_x * _PITCH + 2 * _PAD
+    content_h = span_y * _PITCH + _HEADER + _FOOTER + 2 * _PAD
+    w = max(
+        _MIN_WIN[0],
+        min(content_w, int(dw * 0.9), _HARD_MAX[0]),
+    )
+    h = max(
+        _MIN_WIN[1],
+        min(content_h, int(dh * 0.9), _HARD_MAX[1]),
+    )
+    return (w, h)
 
 
 def launch(
@@ -447,28 +525,45 @@ def launch(
 
     last_turn = max(1, len(result.turns))
     deliveries = _delivery_turns(drones)
+    title = f"Fly-in - {len(drones)} drones"
 
     pygame.init()
     try:
-        layout = _layout(pygame, graph)
-        screen = _open_window(pygame, layout.win)
-        pygame.display.set_caption(f"Fly-in - {len(drones)} drones")
-        fonts = _make_fonts(pygame, layout.cell)
+        target = _make_target(pygame, title, _desired_pts(pygame, graph))
+        layout = _layout(graph, target.px, target.scale)
+        fonts = _make_fonts(pygame, layout.scale)
         frames = _keyframes(graph, drones, len(result.turns), layout)
         turn = 0
         paused = False
         anim_start = pygame.time.get_ticks()
+
+        def rebuild() -> None:
+            """Relayout after a window resize (pitch stays static)."""
+            nonlocal layout, fonts, frames, target
+            if target.window is not None:
+                target = _Target(
+                    window=target.window,
+                    screen=target.window.get_surface(),
+                )
+            layout = _layout(graph, target.px, target.scale)
+            fonts = _make_fonts(pygame, layout.scale)
+            frames = _keyframes(graph, drones, len(result.turns), layout)
+
         while True:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return True
                 if event.type == pygame.VIDEORESIZE:
-                    layout = _layout(pygame, graph, (event.w, event.h))
-                    screen = _open_window(pygame, layout.win)
-                    frames = _keyframes(
-                        graph, drones, len(result.turns), layout
-                    )
-                    fonts = _make_fonts(pygame, layout.cell)
+                    if target.window is None:
+                        target = _Target(
+                            window=None,
+                            screen=pygame.display.set_mode(
+                                (event.w, event.h), pygame.RESIZABLE
+                            ),
+                        )
+                    rebuild()
+                if event.type == pygame.WINDOWSIZECHANGED:
+                    rebuild()
                 if event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_q, pygame.K_ESCAPE):
                         return True
@@ -496,16 +591,16 @@ def launch(
                 anim_start = now
                 frac = 0.0
             _draw_world(
-                pygame, screen, fonts, graph, layout,
+                pygame, target.screen, fonts, graph, layout,
                 frames[turn],
                 frames[min(turn + 1, last_turn)],
                 frac, deliveries, turn,
             )
             _draw_chrome(
-                pygame, screen, fonts, layout, turn, last_turn,
+                pygame, target.screen, fonts, layout, turn, last_turn,
                 result.makespan, paused,
             )
-            pygame.display.flip()
+            target.flip()
             if auto_exit and turn >= last_turn:
                 pygame.time.wait(250)
                 return True

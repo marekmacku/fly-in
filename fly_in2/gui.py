@@ -26,35 +26,39 @@ from fly_in2.model import Drone, Graph, SimulationResult, Zone, ZoneType
 from fly_in2.visualizer import positions_per_turn
 
 _COLOR_RGB: dict[str, tuple[int, int, int]] = {
-    "red": (204, 66, 66), "green": (74, 176, 94),
-    "yellow": (222, 194, 62), "blue": (76, 116, 222),
-    "magenta": (192, 74, 192), "cyan": (74, 192, 192),
-    "gray": (122, 124, 130), "orange": (236, 142, 52),
-    "purple": (144, 82, 202), "pink": (232, 132, 172),
-    "brown": (142, 92, 52), "lime": (142, 222, 72),
+    # Reference palette sampled from the subject's example figures.
+    "red": (232, 48, 32), "green": (48, 120, 32),
+    "yellow": (248, 248, 80), "blue": (0, 0, 240),
+    "magenta": (216, 64, 216), "cyan": (112, 248, 248),
+    "gray": (152, 152, 152), "orange": (240, 168, 56),
+    "purple": (148, 84, 204), "pink": (234, 132, 172),
+    "brown": (146, 94, 54), "lime": (142, 222, 72),
     "gold": (232, 192, 62), "maroon": (132, 46, 46),
-    "crimson": (192, 32, 62), "violet": (152, 92, 222),
+    "crimson": (192, 32, 62), "violet": (154, 94, 224),
     "rainbow": (202, 62, 222), "darkred": (102, 32, 32),
-    "black": (37, 37, 42), "white": (236, 236, 240),
+    "black": (40, 40, 46), "white": (250, 250, 252),
 }
 
 _TYPE_RGB: dict[ZoneType, tuple[int, int, int]] = {
-    ZoneType.NORMAL: (92, 102, 124),
-    ZoneType.PRIORITY: (66, 128, 226),
-    ZoneType.RESTRICTED: (198, 112, 52),
-    ZoneType.BLOCKED: (44, 46, 52),
+    ZoneType.NORMAL: (176, 178, 186),
+    ZoneType.PRIORITY: (0, 0, 240),
+    ZoneType.RESTRICTED: (240, 168, 56),
+    ZoneType.BLOCKED: (74, 76, 82),
 }
 
-_BG = (16, 17, 24)
-_PANEL = (23, 24, 33)
-_DOT = (30, 32, 44)
-_LINK = (66, 68, 84)
-_FG = (236, 236, 242)
-_MUTED = (136, 140, 156)
-_DRONE_RGB = (250, 216, 92)
-_DRONE_DIM = (122, 124, 134)
-_DRONE_BORDER = (28, 28, 34)
-_ACCENT = (94, 158, 236)
+# Light theme, matching the subject's example figures: near-white
+# background, saturated zone circles, gray links, dark text.
+_BG = (248, 248, 248)
+_PANEL = (238, 238, 241)
+_DOT = (224, 226, 230)
+_LINK = (198, 200, 208)
+_FG = (40, 42, 48)
+_MUTED = (124, 128, 140)
+_DRONE_RGB = (28, 28, 36)
+_DRONE_DIM = (168, 170, 178)
+_DRONE_BORDER = (250, 250, 252)
+_DRONE_TEXT = (250, 250, 252)
+_ACCENT = (0, 0, 240)
 
 _HEADER = 46
 _FOOTER = 38
@@ -70,19 +74,32 @@ def _zone_rgb(zone: Zone) -> tuple[int, int, int]:
     if zone.color is not None and zone.color.lower() in _COLOR_RGB:
         return _COLOR_RGB[zone.color.lower()]
     if zone.is_start:
-        return (84, 182, 96)
+        return (48, 120, 32)
     if zone.is_end:
-        return (228, 92, 92)
+        return (232, 48, 32)
     return _TYPE_RGB[zone.zone_type]
 
 
-def _lighten(rgb: tuple[int, int, int], k: int) -> tuple[int, int, int]:
-    """A lighter version of a color, for circle borders."""
+def _shade(rgb: tuple[int, int, int], k: int) -> tuple[int, int, int]:
+    """Darken (negative k) or lighten a color."""
     return (
-        min(255, rgb[0] + k),
-        min(255, rgb[1] + k),
-        min(255, rgb[2] + k),
+        max(0, min(255, rgb[0] + k)),
+        max(0, min(255, rgb[1] + k)),
+        max(0, min(255, rgb[2] + k)),
     )
+
+
+def _edge(fill: tuple[int, int, int]) -> tuple[int, int, int]:
+    """A crisp border color for a circle: darker on bright fills."""
+    lum = (fill[0] * 299 + fill[1] * 587 + fill[2] * 114) // 1000
+    return _shade(fill, -45) if lum > 140 else _shade(fill, 55)
+
+
+def _text_on(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Readable text color on top of the given fill."""
+    if (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) // 1000 > 140:
+        return (22, 24, 30)
+    return (246, 246, 250)
 
 
 def _spans(graph: Graph) -> tuple[int, int]:
@@ -283,33 +300,46 @@ def _draw_world(
     for name, zone in graph.zones.items():
         cx, cy = layout.pixels[name]
         fill = _zone_rgb(zone)
-        pygame.draw.circle(screen, fill, (cx, cy), radius)
+        # Start and end hubs get visibly larger circles.
+        zone_r = radius
+        if zone.is_start or zone.is_end:
+            zone_r = min(cell // 2 - 4, int(radius * 1.3))
+        pygame.draw.circle(screen, fill, (cx, cy), zone_r)
+        edge = _edge(fill)
         if zone.zone_type is ZoneType.BLOCKED:
-            pygame.draw.circle(
-                screen, _lighten(fill, 30), (cx, cy), radius, 2
-            )
-            d = int(radius * 0.5)
+            pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2)
+            d = int(zone_r * 0.5)
             pygame.draw.line(
-                screen, _MUTED, (cx - d, cy - d), (cx + d, cy + d), 2
+                screen, _shade(fill, 120), (cx - d, cy - d),
+                (cx + d, cy + d), 3,
             )
             pygame.draw.line(
-                screen, _MUTED, (cx - d, cy + d), (cx + d, cy - d), 2
+                screen, _shade(fill, 120), (cx - d, cy + d),
+                (cx + d, cy - d), 3,
             )
-        else:
-            pygame.draw.circle(
-                screen, _lighten(fill, 45), (cx, cy), radius, 2
-            )
-            if zone.is_start or zone.is_end:
-                pygame.draw.circle(
-                    screen, _FG, (cx, cy), radius + 4, 2
+            if cell >= 30:
+                label = fonts[1].render(name, True, _MUTED)
+                screen.blit(
+                    label,
+                    label.get_rect(midtop=(cx, cy + zone_r + 3)),
                 )
+            continue
+        pygame.draw.circle(screen, edge, (cx, cy), zone_r, 2)
+        if zone.is_start or zone.is_end:
+            pygame.draw.circle(screen, edge, (cx, cy), zone_r + 4, 2)
         if cell >= 30:
-            color = _MUTED if zone.zone_type is ZoneType.BLOCKED else _FG
+            # Name inside the circle, shrinking to fit; below if wide.
+            color = _text_on(fill)
             label = fonts[1].render(name, True, color)
-            screen.blit(
-                label,
-                label.get_rect(midtop=(cx, cy + radius + 3)),
-            )
+            if label.get_width() > zone_r * 1.8:
+                label = fonts[2].render(name, True, color)
+            if label.get_width() > zone_r * 1.8:
+                screen.blit(
+                    label,
+                    label.get_rect(midtop=(cx, cy + zone_r + 3)),
+                )
+            else:
+                screen.blit(label, label.get_rect(center=(cx, cy)))
     drone_r = max(6, min(13, cell // 7))
     for did, point in frame_a.items():
         target = frame_b.get(did, point)
@@ -319,7 +349,8 @@ def _draw_world(
         pygame.draw.circle(screen, color, (x, y), drone_r)
         pygame.draw.circle(screen, _DRONE_BORDER, (x, y), drone_r, 2)
         if cell >= 44:
-            tag = fonts[2].render(f"D{did}", True, _DRONE_BORDER)
+            tag_color = _FG if dim else _DRONE_TEXT
+            tag = fonts[2].render(f"D{did}", True, tag_color)
             screen.blit(tag, tag.get_rect(center=(x, y)))
 
 

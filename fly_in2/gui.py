@@ -1,15 +1,18 @@
 """Animated pygame visualization of the simulation (optional --gui).
 
-Zones have a fixed size (pitch 170 points); the window sizes itself
-to the map and the pitch only shrinks when the map cannot fit the
-screen. Rendering goes through pygame's Window API with
+Zones have a fixed base size (pitch 60 points) on every map, small
+or large; every map opens in the same default-size window, which the
+user can resize (the size persists across map switches in a tour),
+and the pitch only shrinks when a map cannot fit the window.
+Rendering goes through pygame's Window API with
 allow_high_dpi, so the surface is at the display's native resolution
 (no stretched, blurry upscaling). The animation starts at turn 0 -
 the whole fleet parked on the start zone - and drones glide between
 their per-turn positions; a drone flying a restricted move spends one
 full turn travelling along its connection before arriving. The
 footer shows the simulation's own output line for the current turn,
-and zones with capacity above one carry a badge.
+and zones with capacity above one carry a badge. Label sizes derive
+from the pitch, so text always fits instead of disappearing.
 
 Controls: space play/pause, left/right arrow step one turn, n/p next
 or previous map (tour mode), r restart, q or escape quit.
@@ -73,7 +76,8 @@ _DRONE_TEXT = (28, 28, 36)
 _ACCENT = (94, 158, 236)
 
 # Static sizing, in points; multiplied by the display's DPI scale.
-_PITCH = 170          # grid pitch: long visible links, no clutter
+_PITCH = 60           # base grid pitch everywhere (challenger-like)
+_DEFAULT_WIN = (1560, 980)   # one window size for every map
 _PAD = 48             # breathing room on every side
 _HEADER = 46          # status bar height
 _FOOTER = 38          # controls bar height
@@ -207,6 +211,11 @@ def _zone_radius(pitch: int) -> int:
     return max(6, int(pitch * 0.36))
 
 
+def _drone_radius(pitch: int, scale: int) -> int:
+    """Drone marker radius, proportional to the pitch."""
+    return max(7 * scale, min(15 * scale, pitch // 9))
+
+
 def _transit_edges(
     drones: list[Drone],
 ) -> dict[int, dict[int, tuple[str, str]]]:
@@ -303,7 +312,7 @@ def _draw_world(
     pygame: Any,
     screen: Any,
     background: Any,
-    fonts: tuple[Any, Any, Any],
+    fonts: tuple[Any, Any, Any, Any],
     graph: Graph,
     layout: _Layout,
     frame_a: dict[int, tuple[int, int]],
@@ -347,27 +356,39 @@ def _draw_world(
                 screen, edge, (cx, cy), zone_r + 4 * scale, 2 * scale
             )
         # The name sits below the circle, never inside it: the centre
-        # belongs to the drones, so the two labels cannot collide.
-        if pitch >= 60 * scale:
-            label = fonts[2].render(
-                name, True, _MUTED if zone.zone_type is ZoneType.BLOCKED
-                else _FG
-            )
-            screen.blit(
-                label,
-                label.get_rect(midtop=(cx, cy + zone_r + 4 * scale)),
-            )
+        # belongs to the drones. Fitting ladder: name font, then the
+        # smaller drone font (full name, just smaller), then
+        # truncation - so text shows even on the densest maps, and
+        # neighbours' labels can never touch.
+        color = (
+            _MUTED if zone.zone_type is ZoneType.BLOCKED else _FG
+        )
+        limit = pitch * 0.95
+        shown = name
+        label = fonts[2].render(shown, True, color)
+        if label.get_width() > limit:
+            smaller = fonts[3].render(shown, True, color)
+            if smaller.get_width() <= limit:
+                label = smaller
+            else:
+                label = smaller
+                while label.get_width() > limit and len(shown) > 4:
+                    shown = shown[:-3] + ".."
+                    label = fonts[3].render(shown, True, color)
+        screen.blit(
+            label,
+            label.get_rect(midtop=(cx, cy + zone_r + 4 * scale)),
+        )
         # Capacity badge for zones that hold more than one drone.
-        if (zone.capacity is not None and zone.capacity > 1
-                and pitch >= 60 * scale):
+        if zone.capacity is not None and zone.capacity > 1:
             bx = cx + int(zone_r * 0.78)
             by = cy - int(zone_r * 0.78)
-            br = max(11 * scale, pitch // 12)
+            br = max(9 * scale, pitch // 13)
             pygame.draw.circle(screen, _PANEL, (bx, by), br)
             pygame.draw.circle(screen, _MUTED, (bx, by), br, 1)
-            badge = fonts[2].render(f"x{zone.capacity}", True, _FG)
+            badge = fonts[3].render(f"x{zone.capacity}", True, _FG)
             screen.blit(badge, badge.get_rect(center=(bx, by)))
-    drone_r = max(6 * scale, min(14 * scale, pitch // 11))
+    drone_r = _drone_radius(pitch, scale)
     for did, point in frame_a.items():
         target = frame_b.get(did, point)
         x, y = _lerp(point, target, frac)
@@ -375,15 +396,20 @@ def _draw_world(
         color = _DRONE_DIM if dim else _DRONE_RGB
         pygame.draw.circle(screen, color, (x, y), drone_r)
         pygame.draw.circle(screen, _DRONE_BORDER, (x, y), drone_r, 2)
-        if pitch >= 60 * scale:
-            tag = fonts[2].render(f"D{did}", True, _DRONE_TEXT)
+        tag = fonts[3].render(f"D{did}", True, _DRONE_TEXT)
+        if tag.get_width() <= drone_r * 1.9:
             screen.blit(tag, tag.get_rect(center=(x, y)))
+        else:  # too wide for the marker: hover it just above
+            screen.blit(
+                tag,
+                tag.get_rect(midbottom=(x, y - drone_r - 2 * scale)),
+            )
 
 
 def _draw_chrome(
     pygame: Any,
     screen: Any,
-    fonts: tuple[Any, Any, Any],
+    fonts: tuple[Any, Any, Any, Any],
     layout: _Layout,
     turn: int,
     last_turn: int,
@@ -401,7 +427,7 @@ def _draw_chrome(
     )
     map_w = 0
     if map_label:
-        glyph = fonts[2].render(map_label, True, _MUTED)
+        glyph = fonts[1].render(map_label, True, _MUTED)
         map_w = glyph.get_width()
         screen.blit(
             glyph,
@@ -428,18 +454,18 @@ def _draw_chrome(
         ("#", _MUTED), ("O", _TYPE_RGB[ZoneType.NORMAL]),
     ]
     legend_w = sum(
-        fonts[2].size(letter)[0] + 22 * scale for letter, _ in legend_items
+        fonts[1].size(letter)[0] + 22 * scale for letter, _ in legend_items
     )
     lx = win_w - layout.pad
     mid_y = win_h - layout.footer // 2
     for letter, color in reversed(legend_items):
-        glyph = fonts[2].render(letter, True, _FG)
+        glyph = fonts[1].render(letter, True, _FG)
         screen.blit(glyph, glyph.get_rect(midright=(lx, mid_y)))
         lx -= glyph.get_width() + 6 * scale
         pygame.draw.circle(screen, color, (lx - 4 * scale, mid_y), 5 * scale)
         lx -= 16 * scale
     if line:
-        glyph = fonts[2].render(line, True, _FG)
+        glyph = fonts[1].render(line, True, _FG)
         line_w = max(0, win_w - 2 * layout.pad - legend_w - 4 * scale)
         screen.blit(
             glyph,
@@ -459,12 +485,28 @@ def _draw_chrome(
     )
 
 
-def _make_fonts(pygame: Any, scale: int) -> tuple[Any, Any, Any]:
-    """Header, zone-name and tag fonts at the display's resolution."""
+def _make_fonts(pygame: Any, layout: _Layout) -> tuple[Any, Any, Any, Any]:
+    """Header, chrome, zone-name and drone fonts.
+
+    Name and drone sizes derive from the pitch, so labels keep
+    fitting when a large map shrinks the grid instead of being
+    gated away entirely.
+    """
+    scale = layout.scale
+    pitch = layout.pitch
+    # Vertical room under a circle before the next row's circle:
+    # with r = 0.36 * pitch, the label band must fit in 0.28 * pitch.
+    # The default font's real height is about 0.65x its nominal size
+    # (measured), hence the divisor.
+    name_size = int((pitch * 0.28 - 4 * scale) / 0.65)
+    name_size = max(9 * scale, min(24 * scale, name_size))
+    drone_r = _drone_radius(pitch, scale)
+    drone_size = max(9 * scale, min(17 * scale, int(drone_r * 0.9)))
     return (
-        pygame.font.Font(None, 30 * scale),
-        pygame.font.Font(None, 24 * scale),
-        pygame.font.Font(None, 17 * scale),
+        pygame.font.Font(None, 30 * scale),   # header title
+        pygame.font.Font(None, 17 * scale),   # chrome: legend, lines
+        pygame.font.Font(None, name_size),    # zone names
+        pygame.font.Font(None, drone_size),   # drone ids, badges
     )
 
 
@@ -526,24 +568,15 @@ def _make_target(
     return _Target(window=None, screen=screen)
 
 
-def _desired_pts(pygame: Any, graph: Graph) -> tuple[int, int]:
-    """Window size in points: the map at static pitch, screen-clamped."""
-    span_x, span_y = _spans(graph)
+def _default_pts(pygame: Any) -> tuple[int, int]:
+    """One default window size for every map, screen-clamped."""
     try:
         info = pygame.display.Info()
         dw, dh = int(info.current_w), int(info.current_h)
     except pygame.error:
         dw, dh = _HARD_MAX
-    content_w = span_x * _PITCH + 2 * _PAD
-    content_h = span_y * _PITCH + _HEADER + _FOOTER + 2 * _PAD
-    w = max(
-        _MIN_WIN[0],
-        min(content_w, int(dw * 0.9), _HARD_MAX[0]),
-    )
-    h = max(
-        _MIN_WIN[1],
-        min(content_h, int(dh * 0.9), _HARD_MAX[1]),
-    )
+    w = max(_MIN_WIN[0], min(_DEFAULT_WIN[0], int(dw * 0.8)))
+    h = max(_MIN_WIN[1], min(_DEFAULT_WIN[1], int(dh * 0.8)))
     return (w, h)
 
 
@@ -557,8 +590,13 @@ def _run(
     has_next: bool,
     frame_delay_ms: int,
     auto_exit: bool = False,
+    existing: _Target | None = None,
 ) -> SessionEnd:
     """Animate one map; returns 'quit', 'next' or 'prev'.
+
+    ``existing`` reuses an already-open window (tour mode keeps one
+    fixed-size window across maps); when omitted a fresh default-size
+    window is opened and destroyed on exit.
 
     auto_exit closes after the final turn (used by the headless smoke
     test): 'next' when another map follows, else 'quit'.
@@ -567,10 +605,16 @@ def _run(
     deliveries = _delivery_turns(drones)
     title = f"Fly-in - {len(drones)} drones"
 
-    target = _make_target(pygame, title, _desired_pts(pygame, graph))
+    owns_window = existing is None
+    if existing is None:
+        target = _make_target(pygame, title, _default_pts(pygame))
+    else:
+        target = existing
+        if target.window is not None:
+            target.window.title = title
     try:
         layout = _layout(graph, target.px, target.scale)
-        fonts = _make_fonts(pygame, layout.scale)
+        fonts = _make_fonts(pygame, layout)
         frames = _keyframes(graph, drones, len(result.turns), layout)
         background = _make_background(pygame, graph, layout)
         turn = 0
@@ -586,7 +630,7 @@ def _run(
                     screen=target.window.get_surface(),
                 )
             layout = _layout(graph, target.px, target.scale)
-            fonts = _make_fonts(pygame, layout.scale)
+            fonts = _make_fonts(pygame, layout)
             frames = _keyframes(graph, drones, len(result.turns), layout)
             background = _make_background(pygame, graph, layout)
 
@@ -652,7 +696,7 @@ def _run(
                 return "next" if has_next else "quit"
             pygame.time.wait(15)
     finally:
-        if target.window is not None:
+        if owns_window and target.window is not None:
             target.window.destroy()
 
 
@@ -704,13 +748,19 @@ def launch_tour(
     frame_delay_ms: int = 500,
     auto_exit: bool = False,
 ) -> bool:
-    """Play maps in order, switching with n/p; False if no pygame."""
+    """Play maps in order, switching with n/p; False if no pygame.
+
+    Every map animates in the same default-size window (which the
+    user can resize; the size then persists across map switches).
+    """
     try:
         import pygame
     except ImportError:
         return False
     pygame.init()
+    target: _Target | None = None
     try:
+        target = _make_target(pygame, "Fly-in", _default_pts(pygame))
         while 0 <= index < len(paths):
             loaded = _plan_map(paths[index])
             if loaded is None:
@@ -723,11 +773,13 @@ def launch_tour(
             action = _run(
                 pygame, graph, result, drones, label,
                 index > 0, index < len(paths) - 1,
-                frame_delay_ms, auto_exit,
+                frame_delay_ms, auto_exit, target,
             )
             if action == "quit":
                 return True
             index += 1 if action == "next" else -1
         return True
     finally:
+        if target is not None and target.window is not None:
+            target.window.destroy()
         pygame.quit()

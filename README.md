@@ -221,13 +221,18 @@ ever reaches the screen.
 
 Two visual modes are provided (the spec's "both options"):
 
-- **`--gui`: an animated pygame window.** Zones are drawn as colored
-  tiles at their map coordinates (colors from each zone's `color`
-  metadata, with per-type fallbacks), connections as links, and drones
-  as markers that move zone to zone each turn - drones in restricted
-  transit are drawn midway over their connection. Controls: space
-  pauses, right arrow steps one turn, q/escape quits. pygame is
-  imported lazily; if it is not installed the program notes it on
+- **`--gui`: an animated pygame window.** Zones are drawn as decorated
+  circles at their map coordinates (colors from each zone's `color`
+  metadata, with per-type fallbacks and identities: hazard stripes on
+  restricted zones, a bright ring on priority zones, a bullseye on the
+  start hub, target rings on the end hub), connections as links, and
+  drones as markers that move zone to zone each turn - drones in
+  restricted transit are drawn midway over their connection. Controls:
+  space pauses, right/left arrow steps turns, n/p switches maps in a
+  tour, r restarts, h resets the view, the mouse wheel zooms (anchored
+  at the cursor), left-drag pans, q/esc quits. The window has one
+  default size, is resizable, and zones keep a fixed base size. pygame
+  is imported lazily; if it is not installed the program notes it on
   stderr and falls back to the terminal renderer, so the simulation
   never fails because of the visualization. Only existing zones are
   drawn, so absurd coordinate spans degrade gracefully instead of

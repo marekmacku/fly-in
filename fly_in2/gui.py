@@ -15,7 +15,8 @@ and zones with capacity above one carry a badge. Label sizes derive
 from the pitch, so text always fits instead of disappearing.
 
 Controls: space play/pause, left/right arrow step one turn, n/p next
-or previous map (tour mode), r restart, q or escape quit.
+or previous map (tour mode), r restart, h reset the view, mouse wheel
+zoom (anchored at the cursor), left-drag pan, q or escape quit.
 
 pygame is imported lazily inside launch(), so the program runs fine
 without it; the CLI falls back to the colored terminal renderer.
@@ -131,26 +132,38 @@ class _Layout:
     pixels: dict[str, tuple[int, int]]
 
 
-def _layout(graph: Graph, px: tuple[int, int], scale: int) -> _Layout:
-    """Place zones on a static-pitch grid, centered in the surface.
+def _layout(
+    graph: Graph,
+    px: tuple[int, int],
+    scale: int,
+    zoom: float = 1.0,
+    pan: tuple[int, int] = (0, 0),
+) -> _Layout:
+    """Place zones on the grid; zoom and pan are user view state.
 
-    The pitch is _PITCH points unless the map cannot fit, in which
-    case it shrinks just enough. It never grows: small maps get a
-    small window, not giant zones.
+    The base pitch is _PITCH points unless the map cannot fit the
+    window; the user's zoom factor scales it from there, and zoomed
+    content may overflow the window edges (that is what zooming is).
+    It never grows past the base: small maps get a small window's
+    worth of content, not giant zones.
     """
     span_x, span_y = _spans(graph)
     pad, header, footer = _PAD * scale, _HEADER * scale, _FOOTER * scale
-    pitch = _PITCH * scale
     fit = min(
         max(1, (px[0] - 2 * pad) // max(1, span_x)),
         max(1, (px[1] - header - footer - 2 * pad) // max(1, span_y)),
     )
-    pitch = max(10, min(pitch, fit))
+    base = min(_PITCH * scale, fit)
+    pitch = max(12 * scale, int(base * zoom))
     xs = [z.x for z in graph.zones.values()]
     ys = [z.y for z in graph.zones.values()]
     min_x, max_y = min(xs), max(ys)
-    x0 = (px[0] - span_x * pitch) // 2
-    y0 = header + (px[1] - header - footer - span_y * pitch) // 2
+    x0 = (px[0] - span_x * pitch) // 2 + pan[0]
+    y0 = (
+        header
+        + (px[1] - header - footer - span_y * pitch) // 2
+        + pan[1]
+    )
     return _Layout(
         px=px,
         scale=scale,
@@ -271,17 +284,16 @@ def _draw_zone(
             2 * scale,
         )
     pygame.draw.circle(layer, _edge(fill), (cx, cy), zone_r, 2 * scale)
-    # Name below the circle: name font, then smaller font with the
-    # full name, then truncation - never inside, where drones live.
+    # Name below the circle, at one uniform font for the whole map:
+    # long names truncate to the pitch width. Never inside the
+    # circle, where the drones live.
     color = _MUTED if zone.zone_type is ZoneType.BLOCKED else _FG
     limit = pitch * 0.95
     shown = zone.name
     label = fonts[2].render(shown, True, color)
-    if label.get_width() > limit:
-        label = fonts[3].render(shown, True, color)
-        while label.get_width() > limit and len(shown) > 4:
-            shown = shown[:-3] + ".."
-            label = fonts[3].render(shown, True, color)
+    while label.get_width() > limit and len(shown) > 4:
+        shown = shown[:-3] + ".."
+        label = fonts[2].render(shown, True, color)
     layer.blit(
         label, label.get_rect(midtop=(cx, cy + zone_r + 4 * scale))
     )
@@ -512,7 +524,8 @@ def _draw_chrome(
         status = "PAUSED" if paused else "PLAYING"
     title = fonts[0].render(
         f"Fly-in   Turn {turn}/{last_turn}   {status}"
-        "   -   space pause   arrows step   n/p map   r restart   q quit",
+        "   -   space pause   arrows step   n/p map   r restart"
+        "   h view   wheel zoom   drag pan   q quit",
         True, _FG,
     )
     title_w = max(0, win_w - layout.pad - map_w - 3 * layout.pad)
@@ -686,7 +699,10 @@ def _run(
         if target.window is not None:
             target.window.title = title
     try:
-        layout = _layout(graph, target.px, target.scale)
+        zoom = 1.0
+        pan = (0, 0)
+        dragging = False
+        layout = _layout(graph, target.px, target.scale, zoom, pan)
         fonts = _make_fonts(pygame, layout)
         frames = _keyframes(graph, drones, len(result.turns), layout)
         layer = _make_map_layer(pygame, graph, layout, fonts)
@@ -695,14 +711,14 @@ def _run(
         anim_start = pygame.time.get_ticks()
 
         def rebuild() -> None:
-            """Relayout after a window resize (pitch stays static)."""
+            """Relayout after resize, zoom or pan (user view state)."""
             nonlocal layout, fonts, frames, target, layer
             if target.window is not None:
                 target = _Target(
                     window=target.window,
                     screen=target.window.get_surface(),
                 )
-            layout = _layout(graph, target.px, target.scale)
+            layout = _layout(graph, target.px, target.scale, zoom, pan)
             fonts = _make_fonts(pygame, layout)
             frames = _keyframes(graph, drones, len(result.turns), layout)
             layer = _make_map_layer(pygame, graph, layout, fonts)
@@ -742,6 +758,39 @@ def _run(
                         return "next"
                     if event.key == pygame.K_p and has_prev:
                         return "prev"
+                    if event.key == pygame.K_h:
+                        zoom = 1.0
+                        pan = (0, 0)
+                        rebuild()
+                if event.type == pygame.MOUSEWHEEL:
+                    old_zoom = zoom
+                    zoom = max(0.5, min(4.0, zoom * 1.15 ** event.y))
+                    if zoom != old_zoom:
+                        # Anchor at the cursor: the map point under the
+                        # mouse stays under the mouse after zooming.
+                        mx, my = pygame.mouse.get_pos()
+                        ref_x = target.px[0] / 2
+                        ref_y = layout.header + (
+                            target.px[1]
+                            - layout.header - layout.footer
+                        ) / 2
+                        ratio = zoom / old_zoom
+                        pan = (
+                            int((mx - ref_x)
+                                - (mx - ref_x - pan[0]) * ratio),
+                            int((my - ref_y)
+                                - (my - ref_y - pan[1]) * ratio),
+                        )
+                        rebuild()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:
+                        dragging = True
+                if event.type == pygame.MOUSEBUTTONUP:
+                    if event.button == 1:
+                        dragging = False
+                if event.type == pygame.MOUSEMOTION and dragging:
+                    pan = (pan[0] + event.rel[0], pan[1] + event.rel[1])
+                    rebuild()
             now = pygame.time.get_ticks()
             frac = (
                 1.0

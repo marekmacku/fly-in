@@ -106,8 +106,8 @@ def main(
         if gui.launch_tour(paths):
             return 0
         sys.stderr.write(
-            "note: pygame is not available; showing the first map "
-            "in the terminal\n"
+            "note: no GUI (pygame missing or no display); showing the "
+            "first map in the terminal\n"
         )
         args.map = paths[0]
     try:
@@ -115,6 +115,12 @@ def main(
     except FlyInError as exc:
         sys.stderr.write(f"error: {exc}\n")
         return 2
+    for names in graph.stacked_zones():
+        zone = graph.zones[names[0]]
+        sys.stderr.write(
+            f"warning: zones {', '.join(names)} share position "
+            f"({zone.x}, {zone.y})\n"
+        )
     try:
         drones = plan(graph)
     except FlyInError as exc:
@@ -140,7 +146,8 @@ def main(
                 _print_stats(out, drones, result.makespan)
             return 0
         sys.stderr.write(
-            "note: pygame is not available; using terminal output\n"
+            "note: no GUI (pygame missing or no display); using "
+            "terminal output\n"
         )
     Visualizer(graph, out).render(result, drones, show_grid, colored)
     if args.stats:

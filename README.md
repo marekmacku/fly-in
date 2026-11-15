@@ -45,9 +45,7 @@ which is kept in the repository as a reference. It contains:
 ### Installation
 
 ```bash
-make install        # installs flake8, mypy and pytest in a venv you manage
-# or, in a dedicated virtual environment:
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+make install        # creates .venv if needed, installs flake8, mypy, pytest, pygame-ce
 ```
 
 ### Execution
@@ -226,25 +224,47 @@ Two visual modes are provided (the spec's "both options"):
   metadata, with per-type fallbacks and identities: hazard stripes on
   restricted zones, a bright ring on priority zones, a bullseye on the
   start hub, target rings on the end hub), connections as links, and
-  drones as markers that move zone to zone each turn - drones in
-  restricted transit are drawn midway over their connection. Controls:
-  space pauses, right/left arrow steps turns, n/p switches maps in a
-  tour, r restarts, h resets the view, the mouse wheel zooms (anchored
-  at the cursor), left-drag pans, q/esc quits. The window has one
+  drones as markers that glide zone to zone each turn, easing in and
+  out - drones in restricted transit are drawn midway over their
+  connection. Links flown during the shown turn glow. Each turn's
+  movement line is also printed to stdout as its moves start, in the
+  `--plain` format (in a tour, under a `== <map> ==` header). Controls:
+  space pauses, right/left arrow steps turns, up/down arrow changes
+  the playback speed (0.25x-8x), home/end jump to the first/last
+  turn, n/p switches maps in a tour, r restarts, h resets the view,
+  the mouse wheel zooms (anchored at the cursor), left-drag pans, ?
+  shows the controls, q/esc quits. The header shows the turn, play state, speed
+  and delivered count. The window has one
   default size, is resizable, and zones keep a fixed base size. pygame
-  is imported lazily; if it is not installed the program notes it on
-  stderr and falls back to the terminal renderer, so the simulation
-  never fails because of the visualization. Only existing zones are
-  drawn, so absurd coordinate spans degrade gracefully instead of
-  hanging.
+  is imported lazily; if it is not installed, or no window can be
+  opened (no display), the program notes it on stderr and falls back
+  to the terminal renderer, so the simulation never fails because of
+  the visualization.
 - **Default: colored terminal output.** A per-turn grid drawn from
   zone `(x, y)` coordinates (zone symbols `S`/`E`/`P`/`R`/`#`/`O` plus
   occupying drones), ANSI colors from zone metadata with a fallback
   table, and colorized movement lines.
 
-The `--plain` flag strips colors and the grid for a clean,
-machine-parseable output (exactly the format required by the
-specification). The movement lines remain the authoritative simulation
+Zones may share coordinates (the spec only requires unique names, and
+coordinates never affect movement). Such a map is valid and simulated
+normally; a warning goes to stderr, the grid draws the shared cell as
+`*` (listed under the legend), and the GUI fans the zones out around
+their shared point.
+
+Both views draw coordinates through one squashing equation, since the
+goal is to show the algorithm, not the map's geometry: gaps of up to 4
+units between neighbouring coordinate values are kept as in the file,
+and a longer gap `g` is drawn `4 + log2(g / 4)` units long (rounded),
+but never more than 8: a gap of 8 takes 5 units, 16 takes 6, 32 takes
+7, and anything from 64 up (a hundred or 10^16 alike) takes 8. An
+absurd coordinate can therefore neither push a zone off screen nor
+blow up the terminal grid. The order of zones along each axis is
+always kept.
+
+The `--plain` flag strips colors and the grid and prints exactly the
+format required by the specification: one line per turn listing that
+turn's moves (`D1-roof1 D2-corridorA`), with no turn numbers or
+totals. The movement lines remain the authoritative simulation
 output in every mode.
 
 ## Example input and expected output
@@ -274,12 +294,10 @@ python3 main.py maps_download/easy/01_linear_path.txt --plain
 Expected output:
 
 ```
-Turn 1: D1-waypoint1
-Turn 2: D1-waypoint2 D2-waypoint1
-Turn 3: D1-goal D2-waypoint2
-Turn 4: D2-goal
-
-Total turns: 4
+D1-waypoint1
+D1-waypoint2 D2-waypoint1
+D1-goal D2-waypoint2
+D2-goal
 ```
 
 ### Performance results (all targets met)

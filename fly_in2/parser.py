@@ -26,7 +26,14 @@ def _parse_int(value: str, what: str, line_no: int) -> int:
         raise ParseError(
             f"line {line_no}: invalid integer for {what}: '{value}'"
         )
-    return int(value)
+    try:
+        return int(value)
+    except ValueError:
+        # Python refuses to convert integers longer than its digit
+        # limit (4300 by default): report it like any other bad value.
+        raise ParseError(
+            f"line {line_no}: {what} has too many digits ({len(value)})"
+        ) from None
 
 
 def _strip_comment(line: str) -> str:

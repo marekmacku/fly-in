@@ -190,6 +190,17 @@ class Graph:
         """Yield (neighbor_name, connection) pairs for a zone."""
         return iter(self.adjacency.get(name, ()))
 
+    def stacked_zones(self) -> list[list[str]]:
+        """Groups of zone names sharing one (x, y), in file order.
+
+        The spec only requires unique names, so this is valid input;
+        coordinates matter for drawing only, never for movement.
+        """
+        by_pos: dict[tuple[int, int], list[str]] = {}
+        for zone in self.zones.values():
+            by_pos.setdefault((zone.x, zone.y), []).append(zone.name)
+        return [names for names in by_pos.values() if len(names) > 1]
+
     def validate(self) -> None:
         """Check the global invariants the line-by-line rules cannot see.
 

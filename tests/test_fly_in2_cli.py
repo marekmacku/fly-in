@@ -27,9 +27,13 @@ def test_successful_run_prints_simulation() -> None:
     out = io.StringIO()
     code = cli.main([str(LINEAR), "--plain"], out)
     assert code == 0
-    text = out.getvalue()
-    assert "Turn 1: D1-waypoint1" in text
-    assert "Total turns: 4" in text
+    # --plain is the spec's bare format: one line of moves per turn.
+    assert out.getvalue() == (
+        "D1-waypoint1\n"
+        "D1-waypoint2 D2-waypoint1\n"
+        "D1-goal D2-waypoint2\n"
+        "D2-goal\n"
+    )
 
 
 def test_stats_flag_prints_metrics() -> None:
@@ -91,7 +95,7 @@ def test_gui_flag_falls_back_without_pygame(
     out = io.StringIO()
     code = cli.main([str(LINEAR), "--gui", "--plain"], out)
     assert code == 0
-    assert "Total turns: 4" in out.getvalue()  # terminal fallback ran
+    assert out.getvalue().endswith("D2-goal\n")  # terminal fallback ran
     assert "pygame" in capsys.readouterr().err
 
 
@@ -130,5 +134,5 @@ def test_no_map_falls_back_to_terminal_without_pygame(
     out = io.StringIO()
     code = cli.main(["--plain"], out)
     assert code == 0
-    assert "Total turns: 4" in out.getvalue()
+    assert out.getvalue().endswith("D2-goal\n")
     assert "pygame" in capsys.readouterr().err

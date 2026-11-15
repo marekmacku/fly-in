@@ -8,37 +8,51 @@ Rendering goes through pygame's Window API with
 allow_high_dpi, so the surface is at the display's native resolution
 (no stretched, blurry upscaling). The animation starts at turn 0 -
 the whole fleet parked on the start zone - and drones glide between
-their per-turn positions; a drone flying a restricted move spends one
-full turn travelling along its connection before arriving. The
-footer shows the simulation's own output line for the current turn,
-and zones with capacity above one carry a badge. Label sizes derive
-from the pitch, so text always fits instead of disappearing.
+their per-turn positions, easing out of one zone and into the next; a
+drone flying a restricted move spends one full turn travelling along
+its connection before arriving, eased over the whole crossing. The
+links flown during the shown turn glow. The footer shows the
+simulation's own output line for the current turn, and each line is
+also printed to stdout as its moves start (once per turn, in order,
+in the --plain format). Zones with capacity above one carry a badge.
+Label sizes derive from the pitch, so text always fits instead of
+disappearing. Text uses a clean system sans when one is installed.
 
-Controls: space play/pause, left/right arrow step one turn, n/p next
-or previous map (tour mode), r restart, h reset the view, mouse wheel
-zoom (anchored at the cursor), left-drag pan, q or escape quit.
+Controls: space play/pause, left/right arrow step one turn, up/down
+arrow speed up/slow down, home/end first/last turn, n/p next or
+previous map (tour mode), r restart, h reset the view, mouse wheel
+zoom (anchored at the cursor), left-drag pan, ? show/hide the
+controls, q or escape quit.
 
 pygame is imported lazily inside launch(), so the program runs fine
 without it; the CLI falls back to the colored terminal renderer.
-Only existing zones are drawn, so absurd coordinate spans degrade
-gracefully instead of hanging.
+Long coordinate gaps are squashed logarithmically before drawing
+(visualizer.display_positions), so absurd coordinates stay on screen.
 """
 
 from __future__ import annotations
 
 import math
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from fly_in2.errors import FlyInError
-from fly_in2.model import Drone, Graph, SimulationResult, Zone, ZoneType
+from fly_in2.model import (
+    Connection,
+    Drone,
+    Graph,
+    SimulationResult,
+    Zone,
+    ZoneType,
+)
 from fly_in2.parser import parse_map_file
 from fly_in2.planner import plan
 from fly_in2.simulator import Simulator
 from fly_in2.validator import validate
-from fly_in2.visualizer import positions_per_turn
+from fly_in2.visualizer import display_positions, positions_per_turn
 
 SessionEnd = Literal["quit", "next", "prev"]
 
@@ -75,6 +89,10 @@ _DRONE_DIM = (112, 114, 124)
 _DRONE_BORDER = (20, 20, 26)
 _DRONE_TEXT = (28, 28, 36)
 _ACCENT = (94, 158, 236)
+
+# First installed wins; the built-in pygame font is the last resort.
+_FONT_NAMES = "helveticaneue,inter,notosans,cantarell,dejavusans"
+_SPEEDS = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)   # up/down arrow steps
 
 # Static sizing, in points; multiplied by the display's DPI scale.
 _PITCH = 60           # base grid pitch everywhere (challenger-like)
@@ -113,9 +131,10 @@ def _edge(fill: tuple[int, int, int]) -> tuple[int, int, int]:
 
 
 def _spans(graph: Graph) -> tuple[int, int]:
-    """Width and height of the map in zone-coordinate units."""
-    xs = [z.x for z in graph.zones.values()]
-    ys = [z.y for z in graph.zones.values()]
+    """Width and height of the map in drawn (squashed) grid units."""
+    at = display_positions(graph).values()
+    xs = [x for x, _ in at]
+    ys = [y for _, y in at]
     return max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
 
 
@@ -130,6 +149,14 @@ class _Layout:
     header: int
     footer: int
     pixels: dict[str, tuple[int, int]]
+
+
+def _ring(n: int) -> list[tuple[float, float]]:
+    """Unit offsets fanning n stacked zones out on a ring, first on the left."""
+    return [
+        (math.cos(a), math.sin(a))
+        for a in (math.pi + 2 * math.pi * k / n for k in range(n))
+    ]
 
 
 def _layout(
@@ -148,22 +175,60 @@ def _layout(
     worth of content, not giant zones.
     """
     span_x, span_y = _spans(graph)
+    # Zones sharing one position fan out on a ring just wide enough
+    # for their circles to touch, so every one of them stays visible.
+    # The stack's grid column (and row) widens by the ring's reach on
+    # each side, so the links to the zones before and after it grow
+    # and the stack keeps the normal gap to them. Sizes in pitches;
+    # 0.30 is _zone_radius, 1.15 the larger start/end hub size.
+    stacks = graph.stacked_zones()
+    stack_r = 0.30 * 1.15
+    grow_x: dict[int, float] = {}
+    grow_y: dict[int, float] = {}
+    at = display_positions(graph)
+    for names in stacks:
+        sx, sy = at[names[0]]
+        ring = stack_r / math.sin(math.pi / len(names))
+        offsets = _ring(len(names))
+        reach_x = ring * max(abs(dx) for dx, _ in offsets)
+        reach_y = ring * max(abs(dy) for _, dy in offsets)
+        grow_x[sx] = max(grow_x.get(sx, 0.0), reach_x)
+        grow_y[sy] = max(grow_y.get(sy, 0.0), reach_y)
+    width = span_x + 2 * sum(grow_x.values())
+    height = span_y + 2 * sum(grow_y.values())
     pad, header, footer = _PAD * scale, _HEADER * scale, _FOOTER * scale
     fit = min(
-        max(1, (px[0] - 2 * pad) // max(1, span_x)),
-        max(1, (px[1] - header - footer - 2 * pad) // max(1, span_y)),
+        max(1, (px[0] - 2 * pad) // max(1, width)),
+        max(1, (px[1] - header - footer - 2 * pad) // max(1, height)),
     )
     base = min(_PITCH * scale, fit)
     pitch = max(12 * scale, int(base * zoom))
-    xs = [z.x for z in graph.zones.values()]
-    ys = [z.y for z in graph.zones.values()]
-    min_x, max_y = min(xs), max(ys)
-    x0 = (px[0] - span_x * pitch) // 2 + pan[0]
-    y0 = (
-        header
-        + (px[1] - header - footer - span_y * pitch) // 2
-        + pan[1]
-    )
+    min_x = min(x for x, _ in at.values())
+    max_y = max(y for _, y in at.values())
+    x0 = int((px[0] - width * pitch) // 2) + pan[0]
+    y0 = int(
+        header + (px[1] - header - footer - height * pitch) // 2
+    ) + pan[1]
+
+    def col(x: int) -> float:
+        """Column centre, in pitches from the grid's left edge."""
+        wider = sum(g for gx, g in grow_x.items() if gx < x)
+        return x - min_x + 0.5 + 2 * wider + grow_x.get(x, 0.0)
+
+    def row(y: int) -> float:
+        """Row centre, in pitches from the grid's top edge."""
+        wider = sum(g for gy, g in grow_y.items() if gy > y)
+        return max_y - y + 0.5 + 2 * wider + grow_y.get(y, 0.0)
+
+    pixels = {
+        name: (x0 + int(col(x) * pitch), y0 + int(row(y) * pitch))
+        for name, (x, y) in at.items()
+    }
+    for names in stacks:
+        cx, cy = pixels[names[0]]
+        ring_px = stack_r * pitch / math.sin(math.pi / len(names))
+        for name, (dx, dy) in zip(names, _ring(len(names))):
+            pixels[name] = (cx + int(ring_px * dx), cy + int(ring_px * dy))
     return _Layout(
         px=px,
         scale=scale,
@@ -171,13 +236,7 @@ def _layout(
         pad=pad,
         header=header,
         footer=footer,
-        pixels={
-            name: (
-                x0 + (z.x - min_x) * pitch + pitch // 2,
-                y0 + (max_y - z.y) * pitch + pitch // 2,
-            )
-            for name, z in graph.zones.items()
-        },
+        pixels=pixels,
     )
 
 
@@ -213,6 +272,7 @@ def _draw_zone(
     zone_r: int,
     pitch: int,
     scale: int,
+    label_w: float,
 ) -> None:
     """One zone: shaded ball, type decoration, name, capacity badge."""
     fill = _zone_rgb(zone)
@@ -285,13 +345,12 @@ def _draw_zone(
         )
     pygame.draw.circle(layer, _edge(fill), (cx, cy), zone_r, 2 * scale)
     # Name below the circle, at one uniform font for the whole map:
-    # long names truncate to the pitch width. Never inside the
-    # circle, where the drones live.
+    # long names truncate to label_w. Never inside the circle, where
+    # the drones live.
     color = _MUTED if zone.zone_type is ZoneType.BLOCKED else _FG
-    limit = pitch * 0.95
     shown = zone.name
     label = fonts[2].render(shown, True, color)
-    while label.get_width() > limit and len(shown) > 4:
+    while label.get_width() > label_w and len(shown) > 4:
         shown = shown[:-3] + ".."
         label = fonts[2].render(shown, True, color)
     layer.blit(
@@ -340,17 +399,15 @@ def _make_map_layer(
             layout.pixels[conn.dst],
             max(2 * layout.scale, layout.pitch // 40),
         )
-    base_r = _zone_radius(layout.pitch)
+    stacked = {name for names in graph.stacked_zones() for name in names}
     for name, zone in graph.zones.items():
         cx, cy = layout.pixels[name]
-        zone_r = base_r
-        if zone.is_start or zone.is_end:
-            zone_r = min(
-                layout.pitch // 2 - 4 * layout.scale, int(base_r * 1.15)
-            )
+        zone_r = _zone_r(zone, layout)
+        # Fanned-out zones sit side by side: labels get one circle's width.
+        label_w = 2 * zone_r if name in stacked else layout.pitch * 0.95
         _draw_zone(
             pygame, layer, fonts, zone, cx, cy, zone_r,
-            layout.pitch, layout.scale,
+            layout.pitch, layout.scale, label_w,
         )
     return layer
 
@@ -358,6 +415,14 @@ def _make_map_layer(
 def _zone_radius(pitch: int) -> int:
     """Circle radius: well below the pitch so links stay long."""
     return max(6, int(pitch * 0.30))
+
+
+def _zone_r(zone: Zone, layout: _Layout) -> int:
+    """Drawn radius of one zone; start and end hubs are a bit larger."""
+    base_r = _zone_radius(layout.pitch)
+    if zone.is_start or zone.is_end:
+        return min(layout.pitch // 2 - 4 * layout.scale, int(base_r * 1.15))
+    return base_r
 
 
 def _drone_radius(pitch: int, scale: int) -> int:
@@ -413,11 +478,44 @@ def _spread(
     return frame
 
 
+def _flights(
+    positions: list[dict[int, str | None]],
+    transit: dict[int, dict[int, tuple[str, str]]],
+    start: str,
+    n_turns: int,
+) -> list[dict[int, tuple[str, str]]]:
+    """Per turn: drone id -> (src, dst) of the link it flies that turn.
+
+    Index 0 (the parked fleet) is empty, waiting drones are absent,
+    and a restricted crossing appears on both of its turns.
+    """
+    flights: list[dict[int, tuple[str, str]]] = [{}]
+    for turn in range(1, n_turns + 1):
+        legs: dict[int, tuple[str, str]] = {}
+        for did, loc in positions[turn].items():
+            before = positions[turn - 1].get(did) if turn > 1 else start
+            edge: tuple[str, str] | None
+            if loc is None:
+                edge = transit.get(turn, {}).get(did)
+            elif before is None:
+                edge = transit.get(turn - 1, {}).get(did)
+            elif before != loc:
+                edge = (before, loc)
+            else:
+                continue
+            if edge is not None:
+                legs[did] = edge
+        flights.append(legs)
+    return flights
+
+
 def _keyframes(
     graph: Graph,
     drones: list[Drone],
     n_turns: int,
     layout: _Layout,
+    positions: list[dict[int, str | None]],
+    transit: dict[int, dict[int, tuple[str, str]]],
 ) -> list[dict[int, tuple[int, int]]]:
     """Drone pixel positions per turn, starting at turn 0.
 
@@ -425,8 +523,6 @@ def _keyframes(
     transit sits midway along its connection that turn, so it crosses
     the link over two animation frames.
     """
-    positions = positions_per_turn(graph, drones, n_turns)
-    transit = _transit_edges(drones)
     assert graph.start is not None
     start_pt = layout.pixels[graph.start.name]
     frames = [_spread(
@@ -457,27 +553,87 @@ def _lerp(
     )
 
 
-def _draw_world(
+def _ease(f: float) -> float:
+    """Smoothstep: zero speed at both ends, fastest midway."""
+    return f * f * (3.0 - 2.0 * f)
+
+
+def _glide(f: float, from_mid: bool, to_mid: bool) -> float:
+    """Eased progress along one turn's leg.
+
+    A restricted crossing spans two legs (zone, link midpoint, zone)
+    and eases over the whole crossing, so the drone accelerates out of
+    its zone and decelerates into the next without stopping midway.
+    """
+    if to_mid and not from_mid:
+        return 2.0 * _ease(f / 2.0)
+    if from_mid and not to_mid:
+        return 2.0 * _ease((1.0 + f) / 2.0) - 1.0
+    return _ease(f)
+
+
+def _drone_points(
+    frames: list[dict[int, tuple[int, int]]],
+    transit: dict[int, dict[int, tuple[str, str]]],
+    tau: float,
+) -> dict[int, tuple[int, int]]:
+    """Drone pixels at continuous time tau; turn k spans k-1 .. k."""
+    if tau <= 0.0 or len(frames) < 2:
+        return dict(frames[0])
+    leg = min(len(frames) - 1, math.ceil(tau))
+    f = min(1.0, tau - (leg - 1))
+    src, dst = frames[leg - 1], frames[leg]
+    was_mid, is_mid = transit.get(leg - 1, {}), transit.get(leg, {})
+    return {
+        did: _lerp(
+            point, dst.get(did, point),
+            _glide(f, did in was_mid, did in is_mid),
+        )
+        for did, point in src.items()
+    }
+
+
+def _draw_highlights(
     pygame: Any,
     screen: Any,
-    layer: Any,
+    graph: Graph,
+    layout: _Layout,
+    flying: dict[int, tuple[str, str]],
+) -> None:
+    """Glow over every link flown during the shown turn.
+
+    Trimmed to the zone rims so the zone art stays untouched.
+    """
+    width = max(2 * layout.scale, layout.pitch // 40)
+    for key in {Connection(*edge).key() for edge in flying.values()}:
+        za, zb = graph.zones[key[0]], graph.zones[key[1]]
+        (ax, ay), (bx, by) = layout.pixels[za.name], layout.pixels[zb.name]
+        length = math.hypot(bx - ax, by - ay)
+        ra, rb = _zone_r(za, layout), _zone_r(zb, layout)
+        if length <= ra + rb:
+            continue
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        p = (int(ax + ux * ra), int(ay + uy * ra))
+        q = (int(bx - ux * rb), int(by - uy * rb))
+        pygame.draw.line(screen, _mix(_BG, _ACCENT, 0.3), p, q, 3 * width)
+        pygame.draw.line(screen, _ACCENT, p, q, width)
+
+
+def _draw_drones(
+    pygame: Any,
+    screen: Any,
     fonts: tuple[Any, Any, Any, Any],
     layout: _Layout,
-    frame_a: dict[int, tuple[int, int]],
-    frame_b: dict[int, tuple[int, int]],
-    frac: float,
+    points: dict[int, tuple[int, int]],
     deliveries: dict[int, int],
-    turn: int,
+    tau: float,
 ) -> None:
-    """Render one frame: blit the map layer, then the gliding drones."""
-    screen.blit(layer, (0, 0))
+    """The drone markers; delivered drones are dimmed."""
     scale = layout.scale
     pitch = layout.pitch
     drone_r = _drone_radius(pitch, scale)
-    for did, point in frame_a.items():
-        target = frame_b.get(did, point)
-        x, y = _lerp(point, target, frac)
-        dim = deliveries.get(did, 0) <= turn
+    for did, (x, y) in points.items():
+        dim = deliveries.get(did, 0) <= tau
         color = _DRONE_DIM if dim else _DRONE_RGB
         pygame.draw.circle(screen, color, (x, y), drone_r)
         pygame.draw.circle(screen, _DRONE_BORDER, (x, y), drone_r, 2)
@@ -491,15 +647,51 @@ def _draw_world(
             )
 
 
+_HELP = (
+    ("space", "play / pause"),
+    ("left / right", "step one turn"),
+    ("up / down", "faster / slower"),
+    ("home / end", "first / last turn"),
+    ("n / p", "next / previous map"),
+    ("r", "restart"),
+    ("wheel / drag", "zoom / pan"),
+    ("h", "reset the view"),
+    ("?", "show / hide this help"),
+    ("q / esc", "quit"),
+)
+
+
+def _draw_help(
+    pygame: Any, screen: Any, font: Any, layout: _Layout
+) -> None:
+    """The controls, in a panel centred on the window."""
+    scale = layout.scale
+    pad, gap = 14 * scale, 24 * scale
+    keys = [font.render(key, True, _ACCENT) for key, _ in _HELP]
+    acts = [font.render(act, True, _FG) for _, act in _HELP]
+    key_w = max(g.get_width() for g in keys)
+    row_h = max(g.get_height() for g in keys + acts) + 4 * scale
+    box = pygame.Rect(
+        0, 0,
+        key_w + gap + max(g.get_width() for g in acts) + 2 * pad,
+        row_h * len(_HELP) + 2 * pad,
+    )
+    box.center = (layout.px[0] // 2, layout.px[1] // 2)
+    pygame.draw.rect(screen, _PANEL, box, border_radius=8 * scale)
+    pygame.draw.rect(screen, _ACCENT, box, scale, border_radius=8 * scale)
+    for i, (key, act) in enumerate(zip(keys, acts)):
+        y = box.y + pad + i * row_h
+        screen.blit(key, (box.x + pad, y))
+        screen.blit(act, (box.x + pad + key_w + gap, y))
+
+
 def _draw_chrome(
     pygame: Any,
     screen: Any,
     fonts: tuple[Any, Any, Any, Any],
     layout: _Layout,
-    turn: int,
-    last_turn: int,
-    makespan: int,
-    paused: bool,
+    status: str,
+    progress: float,
     line: str,
     map_label: str | None,
 ) -> None:
@@ -518,16 +710,7 @@ def _draw_chrome(
             glyph,
             glyph.get_rect(midright=(win_w - layout.pad, layout.header // 2)),
         )
-    if turn >= last_turn:
-        status = f"DONE  total turns: {makespan}"
-    else:
-        status = "PAUSED" if paused else "PLAYING"
-    title = fonts[0].render(
-        f"Fly-in   Turn {turn}/{last_turn}   {status}"
-        "   -   space pause   arrows step   n/p map   r restart"
-        "   h view   wheel zoom   drag pan   q quit",
-        True, _FG,
-    )
+    title = fonts[0].render(status, True, _FG)
     title_w = max(0, win_w - layout.pad - map_w - 3 * layout.pad)
     screen.blit(
         title, (layout.pad, (layout.header - title.get_height()) // 2),
@@ -564,11 +747,23 @@ def _draw_chrome(
     pygame.draw.line(
         screen, _DOT, (bar_x0, bar_y), (bar_x1, bar_y), 3 * scale
     )
-    frac = turn / last_turn if last_turn else 1.0
-    head = bar_x0 + int((bar_x1 - bar_x0) * frac)
+    head = bar_x0 + int((bar_x1 - bar_x0) * progress)
     pygame.draw.line(
         screen, _ACCENT, (bar_x0, bar_y), (head, bar_y), 3 * scale
     )
+
+
+def _font(pygame: Any, size: int) -> Any:
+    """The first installed font of _FONT_NAMES, else pygame's own.
+
+    A system font at 0.75x the nominal size sets text as wide as the
+    built-in font does (measured on Helvetica Neue), so the size
+    table below stays valid for either.
+    """
+    path = pygame.font.match_font(_FONT_NAMES)
+    if path is None:
+        return pygame.font.Font(None, size)
+    return pygame.font.Font(path, max(1, int(size * 0.75)))
 
 
 def _make_fonts(pygame: Any, layout: _Layout) -> tuple[Any, Any, Any, Any]:
@@ -582,17 +777,17 @@ def _make_fonts(pygame: Any, layout: _Layout) -> tuple[Any, Any, Any, Any]:
     pitch = layout.pitch
     # Vertical room under a circle before the next row's circle:
     # with r = 0.30 * pitch, the label band can use 0.40 * pitch.
-    # The default font's real height is about 0.65x its nominal size
-    # (measured), hence the divisor.
-    name_size = int((pitch * 0.40 - 4 * scale) / 0.65)
+    # The divisor is the font's measured line height per unit size.
+    ratio = _font(pygame, 100).get_height() / 100
+    name_size = int((pitch * 0.40 - 4 * scale) / ratio)
     name_size = max(9 * scale, min(26 * scale, name_size))
     drone_r = _drone_radius(pitch, scale)
     drone_size = max(9 * scale, min(17 * scale, int(drone_r * 0.9)))
     return (
-        pygame.font.Font(None, 30 * scale),   # header title
-        pygame.font.Font(None, 17 * scale),   # chrome: legend, lines
-        pygame.font.Font(None, name_size),    # zone names
-        pygame.font.Font(None, drone_size),   # drone ids, badges
+        _font(pygame, 30 * scale),   # header title
+        _font(pygame, 17 * scale),   # chrome: legend, lines
+        _font(pygame, name_size),    # zone names
+        _font(pygame, drone_size),   # drone ids, badges
     )
 
 
@@ -687,8 +882,13 @@ def _run(
     auto_exit closes after the final turn (used by the headless smoke
     test): 'next' when another map follows, else 'quit'.
     """
-    last_turn = max(1, len(result.turns))
+    n_turns = len(result.turns)
+    last_turn = max(1, n_turns)
     deliveries = _delivery_turns(drones)
+    positions = positions_per_turn(graph, drones, n_turns)
+    assert graph.start is not None
+    transit = _transit_edges(drones)
+    flights = _flights(positions, transit, graph.start.name, n_turns)
     title = f"Fly-in - {len(drones)} drones"
 
     owns_window = existing is None
@@ -702,13 +902,22 @@ def _run(
         zoom = 1.0
         pan = (0, 0)
         dragging = False
+        show_help = False
         layout = _layout(graph, target.px, target.scale, zoom, pan)
         fonts = _make_fonts(pygame, layout)
-        frames = _keyframes(graph, drones, len(result.turns), layout)
+        frames = _keyframes(
+            graph, drones, n_turns, layout, positions, transit
+        )
         layer = _make_map_layer(pygame, graph, layout, fonts)
+        # Turn `turn` glides frames[turn - 1] -> frames[turn]; frac is
+        # its progress, so a settled frame shows the turn's end state
+        # (turn 0's "glide" is a one-turn hold on the parked fleet).
         turn = 0
+        frac = 0.0
         paused = False
-        anim_start = pygame.time.get_ticks()
+        speed_i = _SPEEDS.index(1.0)
+        printed = 0          # turns already written to stdout
+        tick = pygame.time.get_ticks()
 
         def rebuild() -> None:
             """Relayout after resize, zoom or pan (user view state)."""
@@ -720,7 +929,9 @@ def _run(
                 )
             layout = _layout(graph, target.px, target.scale, zoom, pan)
             fonts = _make_fonts(pygame, layout)
-            frames = _keyframes(graph, drones, len(result.turns), layout)
+            frames = _keyframes(
+                graph, drones, n_turns, layout, positions, transit
+            )
             layer = _make_map_layer(pygame, graph, layout, fonts)
 
         while True:
@@ -739,21 +950,35 @@ def _run(
                 if event.type == pygame.WINDOWSIZECHANGED:
                     rebuild()
                 if event.type == pygame.KEYDOWN:
-                    if event.key in (pygame.K_q, pygame.K_ESCAPE):
+                    if event.key == pygame.K_ESCAPE and show_help:
+                        show_help = False   # escape closes help first
+                    elif event.key in (pygame.K_q, pygame.K_ESCAPE):
                         return "quit"
+                    if event.unicode == "?" or event.key == pygame.K_SLASH:
+                        show_help = not show_help
+                    if event.key == pygame.K_HOME:
+                        turn, frac, paused = 0, 1.0, True
+                    if event.key == pygame.K_END:
+                        turn, frac, paused = last_turn, 1.0, True
                     if event.key == pygame.K_SPACE:
                         paused = not paused
-                        anim_start = pygame.time.get_ticks()
                     if event.key == pygame.K_RIGHT:
                         paused = True
-                        turn = min(last_turn, turn + 1)
+                        if turn < last_turn:
+                            turn += 1
+                            frac = 0.0   # the stepped turn still glides
                     if event.key == pygame.K_LEFT:
                         paused = True
                         turn = max(0, turn - 1)
+                        frac = 1.0
+                    if event.key == pygame.K_UP:
+                        speed_i = min(len(_SPEEDS) - 1, speed_i + 1)
+                    if event.key == pygame.K_DOWN:
+                        speed_i = max(0, speed_i - 1)
                     if event.key == pygame.K_r:
                         turn = 0
+                        frac = 0.0
                         paused = False
-                        anim_start = pygame.time.get_ticks()
                     if event.key == pygame.K_n and has_next:
                         return "next"
                     if event.key == pygame.K_p and has_prev:
@@ -791,29 +1016,50 @@ def _run(
                 if event.type == pygame.MOUSEMOTION and dragging:
                     pan = (pan[0] + event.rel[0], pan[1] + event.rel[1])
                     rebuild()
+            # Advance by elapsed time, so a speed change never jumps.
             now = pygame.time.get_ticks()
-            frac = (
-                1.0
-                if paused or turn >= last_turn
-                else min(1.0, (now - anim_start) / frame_delay_ms)
+            frac = min(
+                1.0,
+                frac + (now - tick) * _SPEEDS[speed_i] / frame_delay_ms,
             )
-            if not paused and turn < last_turn and frac >= 1.0:
+            tick = now
+            if not paused and frac >= 1.0 and turn < last_turn:
                 turn += 1
-                anim_start = now
                 frac = 0.0
-            _draw_world(
-                pygame, target.screen, layer, fonts, layout,
-                frames[turn],
-                frames[min(turn + 1, last_turn)],
-                frac, deliveries, turn,
+            done = turn >= last_turn and frac >= 1.0
+            # Mirror the output on stdout as the moves start: each turn
+            # once, in order (a jump ahead flushes the skipped turns).
+            while printed < min(turn, n_turns):
+                printed += 1
+                sys.stdout.write(result.turns[printed - 1] + "\n")
+                sys.stdout.flush()
+            tau = turn - 1 + frac if turn else 0.0
+            screen = target.screen
+            screen.blit(layer, (0, 0))
+            _draw_highlights(pygame, screen, graph, layout, flights[turn])
+            points = _drone_points(frames, transit, tau)
+            _draw_drones(
+                pygame, screen, fonts, layout, points, deliveries, tau
             )
             line = result.turns[turn - 1] if turn >= 1 else ""
-            _draw_chrome(
-                pygame, target.screen, fonts, layout, turn, last_turn,
-                result.makespan, paused, line, map_label,
+            if done:
+                state = f"DONE  total turns: {result.makespan}"
+            else:
+                state = "PAUSED" if paused else "PLAYING"
+            delivered = sum(1 for t in deliveries.values() if t <= tau)
+            status = (
+                f"Fly-in   Turn {turn}/{last_turn}   {state}   "
+                f"{_SPEEDS[speed_i]:g}x   "
+                f"delivered {delivered}/{len(drones)}   -   ? help"
             )
+            _draw_chrome(
+                pygame, screen, fonts, layout, status, tau / last_turn,
+                line, map_label,
+            )
+            if show_help:
+                _draw_help(pygame, screen, fonts[1], layout)
             target.flip()
-            if auto_exit and turn >= last_turn:
+            if auto_exit and done:
                 pygame.time.wait(250)
                 return "next" if has_next else "quit"
             pygame.time.wait(15)
@@ -848,17 +1094,35 @@ def launch(
     frame_delay_ms: int = 500,
     auto_exit: bool = False,
 ) -> bool:
-    """Play one simulation in a window; False if pygame is unavailable."""
+    """Play one simulation in a window.
+
+    Returns False when there is no GUI to show - pygame missing, or no
+    display to open a window on - so the CLI can fall back to the
+    terminal renderer instead of crashing.
+    """
+    # pygame prints a banner on import; keep stdout to the moves alone.
+    os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
     try:
         import pygame
     except ImportError:
         return False
     pygame.init()
     try:
-        _run(
-            pygame, graph, result, drones, None, False, False,
-            frame_delay_ms, auto_exit,
-        )
+        try:
+            target = _make_target(
+                pygame, f"Fly-in - {len(drones)} drones",
+                _default_pts(pygame),
+            )
+        except pygame.error:
+            return False
+        try:
+            _run(
+                pygame, graph, result, drones, None, False, False,
+                frame_delay_ms, auto_exit, target,
+            )
+        finally:
+            if target.window is not None:
+                target.window.destroy()
         return True
     finally:
         pygame.quit()
@@ -870,11 +1134,15 @@ def launch_tour(
     frame_delay_ms: int = 500,
     auto_exit: bool = False,
 ) -> bool:
-    """Play maps in order, switching with n/p; False if no pygame.
+    """Play maps in order, switching with n/p.
 
     Every map animates in the same default-size window (which the
     user can resize; the size then persists across map switches).
+    Returns False when there is no GUI to show (pygame missing or no
+    display), so the CLI can fall back to the terminal.
     """
+    # pygame prints a banner on import; keep stdout to the moves alone.
+    os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
     try:
         import pygame
     except ImportError:
@@ -882,7 +1150,10 @@ def launch_tour(
     pygame.init()
     target: _Target | None = None
     try:
-        target = _make_target(pygame, "Fly-in", _default_pts(pygame))
+        try:
+            target = _make_target(pygame, "Fly-in", _default_pts(pygame))
+        except pygame.error:
+            return False
         while 0 <= index < len(paths):
             loaded = _plan_map(paths[index])
             if loaded is None:
@@ -892,6 +1163,8 @@ def launch_tour(
             label = (
                 f"{Path(paths[index]).name}   {index + 1}/{len(paths)}"
             )
+            sys.stdout.write(f"\n== {Path(paths[index]).name} ==\n")
+            sys.stdout.flush()
             action = _run(
                 pygame, graph, result, drones, label,
                 index > 0, index < len(paths) - 1,

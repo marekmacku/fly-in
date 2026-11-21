@@ -7,6 +7,10 @@ run Dijkstra over a time-expanded graph whose states are
 drone may act in. Three actions are available:
 
 * ``WAIT`` at zone v: (v, t) -> (v, t+1); occupies v during turn t.
+  The start zone has unlimited room, so a wait there reserves nothing
+  and jumps straight to the next turn the drone could leave in: one
+  search step instead of one per idle turn, which keeps planning
+  linear in the fleet size rather than quadratic.
 * ``MOVE`` to neighbour u (normal/priority): (v, t) -> (u, t+1); uses
   link(v, u) during turn t and occupies u from turn t (move-in). The
   source v is not reserved at t: drones moving out free capacity for
@@ -28,7 +32,14 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from fly_in2.errors import SimulationError
-from fly_in2.model import Drone, Graph, TurnRecord, Zone, ZoneType
+from fly_in2.model import (
+    Connection,
+    Drone,
+    Graph,
+    TurnRecord,
+    Zone,
+    ZoneType,
+)
 from fly_in2.pathfinding import dijkstra
 
 START_TURN = 1
@@ -56,6 +67,9 @@ class _ReservationTable:
 
     zone_occ: dict[ZoneRes, int] = field(default_factory=dict)
     link_occ: dict[LinkRes, int] = field(default_factory=dict)
+    # Per start neighbour: every turn below this one is known to have no
+    # room to leave the start that way (see _next_departure).
+    depart_from: dict[str, int] = field(default_factory=dict)
 
     def zone_count(self, zone: str, turn: int) -> int:
         """Drones occupying ``zone`` during ``turn``."""
@@ -89,6 +103,79 @@ def _can_use_link(
 ) -> bool:
     """True if one more drone may traverse the link during ``turn``."""
     return table.link_count(edge, turn) + 1 <= cap
+
+
+def _step(
+    graph: Graph,
+    table: _ReservationTable,
+    src: str,
+    neighbour: str,
+    conn: Connection,
+    turn: int,
+    horizon: int,
+) -> tuple[int, Action] | None:
+    """Moving `src` -> `neighbour` during `turn`, if allowed.
+
+    Returns the ready turn on arrival and the action ("move", or
+    "transit" into a restricted zone), or None when the neighbour is
+    blocked, the link or zone is full, or it ends past the horizon.
+    """
+    dest = graph.zones[neighbour]
+    if dest.zone_type.movement_cost is None:  # blocked
+        return None
+    edge = _edge_key(src, neighbour)
+    if dest.zone_type is ZoneType.RESTRICTED:
+        if (
+            turn + 2 > horizon
+            or not _can_use_link(table, edge, turn, conn.max_link_capacity)
+            or not _can_occupy_zone(table, dest, turn + 1)
+        ):
+            return None
+        return turn + 2, "transit"
+    if (
+        turn + 1 > horizon
+        or not _can_use_link(table, edge, turn, conn.max_link_capacity)
+        or not _can_occupy_zone(table, dest, turn)
+    ):
+        return None
+    return turn + 1, "move"
+
+
+def _next_departure(
+    graph: Graph,
+    table: _ReservationTable,
+    start: str,
+    after: int,
+    horizon: int,
+) -> int | None:
+    """First turn >= `after`, below the horizon, to leave the start in.
+
+    Reservations only ever grow, so a turn found full for a way out
+    stays full: `table.depart_from` keeps, per neighbour, the turn
+    below which everything is known full, and later drones skip that
+    stretch instead of re-checking it turn by turn.
+    """
+    found: int | None = None
+    for neighbour, conn in graph.neighbors(start):
+        if graph.zones[neighbour].zone_type.movement_cost is None:
+            continue  # blocked: never a way out
+        # Grow the known-full stretch first: each turn is crossed once
+        # per neighbour over the whole plan, not once per drone.
+        known = table.depart_from.get(neighbour, START_TURN)
+        while known < horizon and not _step(
+            graph, table, start, neighbour, conn, known, horizon
+        ):
+            known += 1
+        table.depart_from[neighbour] = known
+        turn = max(after, known)
+        limit = horizon if found is None else found
+        while turn < limit and not _step(
+            graph, table, start, neighbour, conn, turn, horizon
+        ):
+            turn += 1
+        if turn < limit:
+            found = turn
+    return found
 
 
 @dataclass
@@ -170,49 +257,39 @@ def _plan_drone(
             continue
         zone = graph.zones[zone_name]
 
-        # WAIT: stay put during this turn (occupies the zone).
-        if _can_occupy_zone(table, zone, turn):
+        # WAIT: stay put during this turn (occupies the zone). On the
+        # unlimited start, skip the idle turns in which no way out has
+        # room: from those the only option is to keep waiting.
+        if zone_name == start_name:
+            leave = _next_departure(
+                graph, table, start_name, turn + 1, horizon
+            )
+            if leave is not None:
+                relax(
+                    (zone_name, leave), (leave, npc),
+                    "wait", zone_name, state,
+                )
+        elif _can_occupy_zone(table, zone, turn):
             relax(
                 (zone_name, turn + 1), (turn + 1, npc),
                 "wait", zone_name, state,
             )
 
         for neighbour, conn in graph.neighbors(zone_name):
-            dest = graph.zones[neighbour]
-            if dest.zone_type.movement_cost is None:  # blocked
+            step = _step(
+                graph, table, zone_name, neighbour, conn, turn, horizon
+            )
+            if step is None:
                 continue
-            edge = _edge_key(zone_name, neighbour)
+            new_turn, action = step
+            dest = graph.zones[neighbour]
             entry_npc = npc + (
                 0 if dest.zone_type is ZoneType.PRIORITY else 1
             )
-            if dest.zone_type is ZoneType.RESTRICTED:
-                new_turn = turn + 2
-                if new_turn > horizon:
-                    continue
-                if not _can_use_link(
-                    table, edge, turn, conn.max_link_capacity
-                ):
-                    continue
-                if not _can_occupy_zone(table, dest, turn + 1):
-                    continue
-                relax(
-                    (neighbour, new_turn), (new_turn, entry_npc),
-                    "transit", neighbour, state,
-                )
-            else:
-                new_turn = turn + 1
-                if new_turn > horizon:
-                    continue
-                if not _can_use_link(
-                    table, edge, turn, conn.max_link_capacity
-                ):
-                    continue
-                if not _can_occupy_zone(table, dest, turn):
-                    continue
-                relax(
-                    (neighbour, new_turn), (new_turn, entry_npc),
-                    "move", neighbour, state,
-                )
+            relax(
+                (neighbour, new_turn), (new_turn, entry_npc),
+                action, neighbour, state,
+            )
 
     if goal_state is None:
         raise SimulationError(
@@ -234,8 +311,11 @@ def _plan_drone(
     for node in path_nodes[1:]:
         ready = node.state[1]
         if node.action == "wait":
-            records.append(TurnRecord(ready - 1, None, prev_zone))
-            zone_res.append((prev_zone, ready - 1))
+            # On the start a wait needs no record (the output omits
+            # waits) and no reservation (the start is unlimited).
+            if prev_zone != start_name:
+                records.append(TurnRecord(ready - 1, None, prev_zone))
+                zone_res.append((prev_zone, ready - 1))
         elif node.action == "move":
             dest_name = node.destination
             edge = _edge_key(prev_zone, dest_name)

@@ -279,9 +279,11 @@ class Visualizer:
     ) -> None:
         """Render the full, already-validated simulation."""
         out = self._stream
+        # The grid alone needs every drone's zone on every turn; --plain
+        # skips that drones x turns table entirely.
         positions = positions_per_turn(
             self._graph, drones, len(result.turns)
-        )
+        ) if show_grid else []
         if show_grid:
             out.write(self.render_legend(colored) + "\n\n")
         for index, line in enumerate(result.turns):

@@ -82,8 +82,8 @@ def test_linear_path_trajectories() -> None:
     assert _trajectory(drones, 1) == [
         (1, "w1", "w1"), (2, "w2", "w2"), (3, "e", "e"),
     ]
-    assert _trajectory(drones, 2) == [
-        (1, None, "s"), (2, "w1", "w1"), (3, "w2", "w2"), (4, "e", "e"),
+    assert _trajectory(drones, 2) == [  # its wait on the start is not stored
+        (2, "w1", "w1"), (3, "w2", "w2"), (4, "e", "e"),
     ]
     assert _makespan(drones) == 4
 

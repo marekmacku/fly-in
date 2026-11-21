@@ -111,6 +111,16 @@ def validate(graph: Graph, drones: list[Drone]) -> ValidationResult:
     by_drone: dict[int, dict[int, TurnRecord]] = {
         d.drone_id: {rec.turn: rec for rec in d.trajectory} for d in drones
     }
+    # Drones that act on each turn. A drone with no record that turn
+    # and still on the start only waits on an unlimited zone, which no
+    # rule can break, so each turn replays just these plus the drones
+    # away from the start: the replay grows with the moves, not with
+    # drones x turns.
+    acting: dict[int, set[int]] = {}
+    for d in drones:
+        for record in d.trajectory:
+            acting.setdefault(record.turn, set()).add(d.drone_id)
+    away: set[int] = set()
     delivered: set[int] = set()
 
     zone_occ = _OccCounter()
@@ -123,8 +133,7 @@ def validate(graph: Graph, drones: list[Drone]) -> ValidationResult:
     for turn in range(1, makespan + 1):
         # Pass 1: classify each active drone's action, or flag it.
         actions: list[_Action] = []
-        for drone in drones:
-            did = drone.drone_id
+        for did in sorted(acting.get(turn, set()) | away):
             if did in delivered:
                 continue
             rec = by_drone[did].get(turn)
@@ -264,6 +273,12 @@ def validate(graph: Graph, drones: list[Drone]) -> ValidationResult:
                 committed[did] = None
                 if act.dest == end_name:
                     delivered.add(did)
+            # Off the start (in flight or elsewhere): replay it every
+            # turn from now on, whether it has a record or not.
+            if did not in delivered and positions[did] != start_name:
+                away.add(did)
+            else:
+                away.discard(did)
 
     for drone in drones:
         if drone.drone_id not in delivered:

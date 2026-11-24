@@ -13,9 +13,8 @@ cost two turns, blocked zones cannot be entered).
 
 The project is written entirely in Python (standard library only), is
 fully object-oriented and fully type-checked (`mypy --strict` and `flake8`
-pass with zero warnings). The active implementation is the `fly_in2`
-package; it is a from-scratch rewrite of the original `fly_in` package,
-which is kept in the repository as a reference. It contains:
+pass with zero warnings). The implementation is the `fly_in2` package.
+It contains:
 
 - a strict map-file **parser** with precise error reporting (`line N: cause`
   on every rejection, integer validation included);

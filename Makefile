@@ -17,7 +17,7 @@ debug:
 
 clean:
 	rm -rf __pycache__ .mypy_cache .pytest_cache \
-		fly_in/__pycache__ fly_in2/__pycache__ tests/__pycache__
+		fly_in2/__pycache__ tests/__pycache__
 
 lint:
 	$(PYTHON) -m flake8 .

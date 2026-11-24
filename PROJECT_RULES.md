@@ -29,7 +29,7 @@ Python 3.10+ (stdlib only at runtime). flake8 + mypy --strict mandatory.
 - Dev/lint: flake8, mypy, pytest (Makefile install).
 
 ## Required files
-- Makefile, README.md, .gitignore, setup.cfg, main.py, fly_in/ package, tests/.
+- Makefile, README.md, .gitignore, setup.cfg, main.py, fly_in2/ package, tests/.
 
 ## Input/output contract
 - Input: path to a map file (CLI arg or stdin fallback).

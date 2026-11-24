@@ -52,7 +52,11 @@ from fly_in2.parser import parse_map_file
 from fly_in2.planner import plan
 from fly_in2.simulator import Simulator
 from fly_in2.validator import validate
-from fly_in2.visualizer import display_positions, positions_per_turn
+from fly_in2.visualizer import (
+    Positions,
+    display_positions,
+    positions_per_turn,
+)
 
 SessionEnd = Literal["quit", "next", "prev"]
 
@@ -479,7 +483,7 @@ def _spread(
 
 
 def _flights(
-    positions: list[dict[int, str | None]],
+    positions: Positions,
     transit: dict[int, dict[int, tuple[str, str]]],
     start: str,
     n_turns: int,
@@ -514,7 +518,7 @@ def _keyframes(
     drones: list[Drone],
     n_turns: int,
     layout: _Layout,
-    positions: list[dict[int, str | None]],
+    positions: Positions,
     transit: dict[int, dict[int, tuple[str, str]]],
 ) -> list[dict[int, tuple[int, int]]]:
     """Drone pixel positions per turn, starting at turn 0.

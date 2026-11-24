@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import sys
 from dataclasses import dataclass
-from typing import Iterable, TextIO
+from typing import Iterable, TextIO, TypeAlias
 
 from fly_in2.model import (
     Drone,
@@ -109,16 +109,21 @@ class _Cell:
     stacked: bool = False
 
 
+# Every drone's zone at the end of each turn, indexed by turn (from 1);
+# None while the drone is mid-crossing to a restricted zone.
+Positions: TypeAlias = list[dict[int, str | None]]
+
+
 def positions_per_turn(
     graph: Graph, drones: list[Drone], n_turns: int
-) -> list[dict[int, str | None]]:
+) -> Positions:
     """Each drone's zone per turn (None while in transit).
 
     Index ``t`` (1-based) maps every active drone to the zone it ends
     turn ``t`` in; delivered drones stay parked at the end zone.
     """
     assert graph.start is not None and graph.end is not None
-    positions: list[dict[int, str | None]] = [
+    positions: Positions = [
         {} for _ in range(n_turns + 2)
     ]
     for drone in drones:

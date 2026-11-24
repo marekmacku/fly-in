@@ -92,4 +92,5 @@ def test_transit_conflict_wait_pattern() -> None:
     drones, _graph = _plan_map("m09_transit_conflict.txt")
     drone2 = next(d for d in drones if d.drone_id == 2)
     turns = [(rec.turn, rec.token) for rec in drone2.trajectory]
-    assert turns == [(1, None), (2, "s-r"), (3, "r"), (4, "e")]
+    # Its turn-1 wait is on the start, which is not stored.
+    assert turns == [(2, "s-r"), (3, "r"), (4, "e")]

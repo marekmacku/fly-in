@@ -3,8 +3,11 @@
 # Prefer the project virtual environment when it exists.
 PYTHON := $(shell test -x .venv/bin/python && echo .venv/bin/python || echo python3)
 
+# Install into a project venv, created on first use: the system Python on
+# current Debian/Ubuntu (and Homebrew) refuses `pip install` (PEP 668).
 install:
-	$(PYTHON) -m pip install -r requirements-dev.txt
+	test -x .venv/bin/python || python3 -m venv .venv
+	.venv/bin/python -m pip install -r requirements-dev.txt
 
 run:
 	$(PYTHON) main.py $(MAP)
@@ -14,7 +17,7 @@ debug:
 
 clean:
 	rm -rf __pycache__ .mypy_cache .pytest_cache \
-		fly_in/__pycache__ fly_in2/__pycache__ tests/__pycache__
+		fly_in2/__pycache__ tests/__pycache__
 
 lint:
 	$(PYTHON) -m flake8 .

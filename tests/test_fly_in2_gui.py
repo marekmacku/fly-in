@@ -1,4 +1,4 @@
-"""Unit tests for the pure animation helpers in fly_in2.gui (they need no pygame)."""
+"""Unit tests for the pure animation helpers in fly_in2.gui (no pygame)."""
 
 from functools import partial
 from typing import Callable
@@ -40,7 +40,7 @@ H = 1e-6
 
 
 def slope(curve: Callable[[float], float], a: float) -> float:
-    """Speed of an eased curve over the tiny step from `a` towards the inside of [0, 1]."""
+    """Slope of an eased curve over a tiny step from `a` into [0, 1]."""
     b = a + H if a < 0.5 else a - H
     return (curve(b) - curve(a)) / (b - a)
 
@@ -54,7 +54,7 @@ def flights_for(text: str) -> list[dict[int, tuple[str, str]]]:
     return _flights(positions, _transit_edges(drones), "s", n_turns)
 
 
-# --- easing --------------------------------------------------------------------------------
+# --- easing ---
 
 
 def test_glide_between_zones_starts_and_ends_at_rest() -> None:
@@ -67,7 +67,7 @@ def test_glide_between_zones_starts_and_ends_at_rest() -> None:
 
 
 def test_restricted_crossing_starts_and_ends_at_rest() -> None:
-    """A restricted crossing accelerates out of its zone and decelerates into the next one."""
+    """A restricted crossing eases out of its zone and into the next one."""
     departing = partial(_glide, from_mid=False, to_mid=True)
     arriving = partial(_glide, from_mid=True, to_mid=False)
     assert slope(departing, 0.0) == pytest.approx(0.0, abs=1e-4)
@@ -75,40 +75,41 @@ def test_restricted_crossing_starts_and_ends_at_rest() -> None:
 
 
 def test_restricted_crossing_meets_at_the_midpoint() -> None:
-    """The departing half ends exactly where the arriving half begins: the link midpoint."""
+    """The departing half ends where the arriving half begins: the midpoint."""
     assert _glide(1.0, from_mid=False, to_mid=True) == pytest.approx(1.0)
     assert _glide(0.0, from_mid=True, to_mid=False) == pytest.approx(0.0)
 
 
 def test_restricted_crossing_does_not_stop_at_the_midpoint() -> None:
-    """Speed is continuous and non-zero where the two halves of a restricted crossing meet."""
+    """Speed stays continuous and non-zero where the two halves meet."""
     into_mid = slope(partial(_glide, from_mid=False, to_mid=True), 1.0)
     out_of_mid = slope(partial(_glide, from_mid=True, to_mid=False), 0.0)
     assert into_mid == pytest.approx(out_of_mid, rel=1e-3)
     assert into_mid > 0.5
 
 
-# --- drone positions -----------------------------------------------------------------------
+# --- drone positions ---
 
-# One drone: start (0, 0), restricted midpoint (50, 0) after turn 1, far zone (100, 0) after 2.
+# One drone: start (0, 0), restricted midpoint (50, 0) after turn 1,
+# far zone (100, 0) after turn 2.
 FRAMES = [{1: (0, 0)}, {1: (50, 0)}, {1: (100, 0)}]
 TRANSIT = {1: {1: ("a", "b")}}
 
 
 def test_drone_points_sit_on_the_keyframes_at_whole_turns() -> None:
-    """At the end of turn k a drone is exactly on keyframe k, restricted midpoint included."""
+    """At the end of turn k a drone is on keyframe k, midpoints included."""
     assert _drone_points(FRAMES, TRANSIT, 0.0) == {1: (0, 0)}
     assert _drone_points(FRAMES, TRANSIT, 1.0) == {1: (50, 0)}
     assert _drone_points(FRAMES, TRANSIT, 2.0) == {1: (100, 0)}
 
 
 def test_drone_points_move_between_keyframes_during_a_turn() -> None:
-    """Halfway through a turn the drone is strictly between that turn's two keyframes."""
+    """Halfway through a turn the drone is strictly between two keyframes."""
     assert 0 < _drone_points(FRAMES, TRANSIT, 0.5)[1][0] < 50
     assert 50 < _drone_points(FRAMES, TRANSIT, 1.5)[1][0] < 100
 
 
-# --- flights -------------------------------------------------------------------------------
+# --- flights ---
 
 
 def test_flights_list_only_drones_that_move() -> None:
@@ -123,7 +124,7 @@ def test_flights_list_only_drones_that_move() -> None:
 
 
 def test_restricted_crossing_flies_its_link_on_both_turns() -> None:
-    """A restricted move shows the same link on its departure turn and its arrival turn."""
+    """A restricted move flies its link on both of its turns."""
     assert flights_for(RESTRICTED) == [
         {},
         {1: ("s", "r")},

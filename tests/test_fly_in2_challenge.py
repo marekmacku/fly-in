@@ -12,7 +12,9 @@ from fly_in2.parser import parse_map
 from fly_in2.planner import plan
 from fly_in2.validator import assert_valid
 
-CHALLENGES = Path(__file__).resolve().parent.parent / "maps_custom" / "challenge"
+CHALLENGES = (
+    Path(__file__).resolve().parent.parent / "maps_custom" / "challenge"
+)
 
 
 def _makespan(drones: list[Drone]) -> int:

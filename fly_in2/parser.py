@@ -104,6 +104,13 @@ def _validate_name(name: str, line_no: int) -> str:
         raise ParseError(
             f"line {line_no}: zone name '{name}' contains whitespace"
         )
+    # Control and invisible format characters (NUL, ESC, BOM, RTL
+    # override) would garble the terminal and crash the GUI's fonts.
+    if not name.isprintable():
+        raise ParseError(
+            f"line {line_no}: zone name {name!r} contains a control "
+            f"or invisible character"
+        )
     return name
 
 

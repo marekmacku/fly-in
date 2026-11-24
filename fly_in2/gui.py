@@ -152,7 +152,7 @@ class _Layout:
 
 
 def _ring(n: int) -> list[tuple[float, float]]:
-    """Unit offsets fanning n stacked zones out on a ring, first on the left."""
+    """Unit offsets fanning n stacked zones out on a ring, first left."""
     return [
         (math.cos(a), math.sin(a))
         for a in (math.pi + 2 * math.pi * k / n for k in range(n))
@@ -739,7 +739,8 @@ def _draw_chrome(
         screen.blit(
             glyph,
             (layout.pad,
-             win_h - layout.footer + (layout.footer - glyph.get_height()) // 2),
+             win_h - layout.footer
+             + (layout.footer - glyph.get_height()) // 2),
             pygame.Rect(0, 0, line_w, glyph.get_height()),
         )
     bar_x0, bar_x1 = layout.pad, win_w - layout.pad
